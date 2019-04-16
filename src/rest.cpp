@@ -339,7 +339,7 @@ static bool rest_mempool_info(const util::Ref& context, HTTPRequest* req, const 
 
     switch (rf) {
     case RetFormat::JSON: {
-        UniValue mempoolInfoObject = MempoolInfoToJSON(*mempool);
+        UniValue mempoolInfoObject = MempoolInfoToJSON(*mempool, false);
 
         std::string strJSON = mempoolInfoObject.write() + "\n";
         req->WriteHeader("Content-Type", "application/json");

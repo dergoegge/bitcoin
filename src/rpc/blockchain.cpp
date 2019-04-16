@@ -1475,7 +1475,7 @@ static RPCHelpMan getchaintips()
     };
 }
 
-UniValue MempoolInfoToJSON(const CTxMemPool& pool)
+UniValue MempoolInfoToJSON(const CTxMemPool& pool, bool with_fee_histogram)
 {
     // Make sure this call is atomic in the pool.
     LOCK(pool.cs);
@@ -1489,6 +1489,64 @@ UniValue MempoolInfoToJSON(const CTxMemPool& pool)
     ret.pushKV("mempoolminfee", ValueFromAmount(std::max(pool.GetMinFee(maxmempool), ::minRelayTxFee).GetFeePerK()));
     ret.pushKV("minrelaytxfee", ValueFromAmount(::minRelayTxFee.GetFeePerK()));
     ret.pushKV("unbroadcastcount", uint64_t{pool.GetUnbroadcastTxs().size()});
+
+    if (with_fee_histogram) {
+        /* TODO: define log scale formular for dynamically creating the
+         * feelimits but with the property of not constantly changing
+         * (and thus screw up client implementations) */
+        static const std::vector<CAmount> feelimits{1, 2, 3, 4, 5, 6, 7, 8, 10,
+            12, 14, 17, 20, 25, 30, 40, 50, 60, 70, 80, 100,
+            120, 140, 170, 200, 250, 300, 400, 500, 600, 700, 800, 1000,
+            1200, 1400, 1700, 2000, 2500, 3000, 4000, 5000, 6000, 7000, 8000, 10000};
+
+        /* keep histogram per...
+         * ... cumulated tx sizes
+         * ... txns (count)
+         * ... cumulated fees */
+        std::vector<uint64_t> sizes(feelimits.size(), 0);
+        std::vector<uint64_t> count(feelimits.size(), 0);
+        std::vector<uint64_t> fees(feelimits.size(), 0);
+
+        for (const CTxMemPoolEntry& e : pool.mapTx) {
+            int size = (int)e.GetTxSize();
+            CAmount fee = e.GetFee();
+            uint64_t asize = e.GetSizeWithAncestors();
+            CAmount afees = e.GetModFeesWithAncestors();
+            uint64_t dsize = e.GetSizeWithDescendants();
+            CAmount dfees = e.GetModFeesWithDescendants();
+
+            CAmount fpb = fee / size; //fee per byte
+            CAmount afpb = afees / asize; //fee per byte including ancestors
+            CAmount dfpb = dfees / dsize; //fee per byte including descendants
+            CAmount tfpb = (afees + dfees - fee) / (asize + dsize - size);
+            CAmount feeperbyte = std::max(std::min(dfpb, tfpb), std::min(fpb, afpb));
+
+            // distribute feerates into feelimits
+            for (size_t i = 0; i < feelimits.size(); i++) {
+                if (feeperbyte >= feelimits[i] && (i == feelimits.size() - 1 || feeperbyte < feelimits[i + 1])) {
+                    sizes[i] += size;
+                    count[i]++;
+                    fees[i] += fee;
+                    break;
+                }
+            }
+        }
+        CAmount total_fees = 0; //track total amount of available fees in mempool
+        UniValue info(UniValue::VOBJ);
+        for (size_t i = 0; i < feelimits.size(); i++) {
+            UniValue info_sub(UniValue::VOBJ);
+            info_sub.pushKV("sizes", sizes[i]);
+            info_sub.pushKV("count", count[i]);
+            info_sub.pushKV("fees", fees[i]);
+            info_sub.pushKV("from_feerate", feelimits[i]);
+            info_sub.pushKV("to_feerate", i == feelimits.size() - 1 ? std::numeric_limits<int64_t>::max() : feelimits[i + 1]);
+            total_fees += fees[i];
+            info.pushKV(std::to_string(feelimits[i]), info_sub);
+        }
+        info.pushKV("total_fees", total_fees);
+        ret.pushKV("fee_histogram", info);
+    }
+
     return ret;
 }
 
@@ -1496,7 +1554,9 @@ static RPCHelpMan getmempoolinfo()
 {
     return RPCHelpMan{"getmempoolinfo",
                 "\nReturns details on the active state of the TX memory pool.\n",
-                {},
+                {
+                    {"with_fee_histogram", RPCArg::Type::BOOL, /* default */ "false", "True for including the fee histogram in the response"},
+                },
                 RPCResult{
                     RPCResult::Type::OBJ, "", "",
                     {
@@ -1507,7 +1567,19 @@ static RPCHelpMan getmempoolinfo()
                         {RPCResult::Type::NUM, "maxmempool", "Maximum memory usage for the mempool"},
                         {RPCResult::Type::STR_AMOUNT, "mempoolminfee", "Minimum fee rate in " + CURRENCY_UNIT + "/kB for tx to be accepted. Is the maximum of minrelaytxfee and minimum mempool fee"},
                         {RPCResult::Type::STR_AMOUNT, "minrelaytxfee", "Current minimum relay fee for transactions"},
-                        {RPCResult::Type::NUM, "unbroadcastcount", "Current number of transactions that haven't passed initial broadcast yet"}
+                        {RPCResult::Type::NUM, "unbroadcastcount", "Current number of transactions that haven't passed initial broadcast yet"},
+                        {RPCResult::Type::OBJ_DYN, "fee_histogram",  "",
+                        {
+                            {RPCResult::Type::OBJ, "<feerate-group>", "Object per feerate group",
+                            {
+                                    {RPCResult::Type::NUM, "sizes", "Cumulated size of all transactions in feerate group"},
+                                    {RPCResult::Type::NUM, "count", "Amount of transactions in feerate group"},
+                                    {RPCResult::Type::NUM, "fees", "Cumulated fee of all transactions in feerate group"},
+                                    {RPCResult::Type::NUM, "from_feerate", "Group contains transaction with feerates equal or greater than this value"},
+                                    {RPCResult::Type::NUM, "to_feerate", "Group contains transaction with feerates less than than this value"}
+                            }},
+                            {RPCResult::Type::NUM, "total_fees", "Total available fees in mempool"}
+                        }}
                     }},
                 RPCExamples{
                     HelpExampleCli("getmempoolinfo", "")
@@ -1515,7 +1587,12 @@ static RPCHelpMan getmempoolinfo()
                 },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    return MempoolInfoToJSON(EnsureMemPool(request.context));
+    bool with_fee_histogram = false;
+    if (!request.params[0].isNull()) {
+        with_fee_histogram = request.params[0].get_bool();
+    }
+
+    return MempoolInfoToJSON(EnsureMemPool(request.context), with_fee_histogram);
 },
     };
 }
@@ -2479,7 +2556,7 @@ static const CRPCCommand commands[] =
     { "blockchain",         "getmempoolancestors",    &getmempoolancestors,    {"txid","verbose"} },
     { "blockchain",         "getmempooldescendants",  &getmempooldescendants,  {"txid","verbose"} },
     { "blockchain",         "getmempoolentry",        &getmempoolentry,        {"txid"} },
-    { "blockchain",         "getmempoolinfo",         &getmempoolinfo,         {} },
+    { "blockchain",         "getmempoolinfo",         &getmempoolinfo,         {"with_fee_histogram"} },
     { "blockchain",         "getrawmempool",          &getrawmempool,          {"verbose", "mempool_sequence"} },
     { "blockchain",         "gettxout",               &gettxout,               {"txid","n","include_mempool"} },
     { "blockchain",         "gettxoutsetinfo",        &gettxoutsetinfo,        {"hash_type"} },
