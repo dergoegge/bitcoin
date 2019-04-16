@@ -328,7 +328,7 @@ static bool rest_chaininfo(const util::Ref& context, HTTPRequest* req, const std
     }
 }
 
-static bool rest_mempool_info(const util::Ref& context, HTTPRequest* req, const std::string& strURIPart)
+static bool rest_mempool_info(const util::Ref& context, HTTPRequest* req, const std::string& strURIPart, bool fee_histogram)
 {
     if (!CheckWarmup(req))
         return false;
@@ -339,7 +339,7 @@ static bool rest_mempool_info(const util::Ref& context, HTTPRequest* req, const 
 
     switch (rf) {
     case RetFormat::JSON: {
-        UniValue mempoolInfoObject = MempoolInfoToJSON(*mempool, false);
+        UniValue mempoolInfoObject = MempoolInfoToJSON(*mempool, fee_histogram);
 
         std::string strJSON = mempoolInfoObject.write() + "\n";
         req->WriteHeader("Content-Type", "application/json");
@@ -350,6 +350,16 @@ static bool rest_mempool_info(const util::Ref& context, HTTPRequest* req, const 
         return RESTERR(req, HTTP_NOT_FOUND, "output format not found (available: json)");
     }
     }
+}
+
+static bool rest_mempool_info_basic(const util::Ref& context, HTTPRequest* req, const std::string& strURIPart)
+{
+    return rest_mempool_info(context, req, strURIPart, false);
+}
+
+static bool rest_mempool_info_with_fee_histogram(const util::Ref& context, HTTPRequest* req, const std::string& strURIPart)
+{
+    return rest_mempool_info(context, req, strURIPart, true);
 }
 
 static bool rest_mempool_contents(const util::Ref& context, HTTPRequest* req, const std::string& strURIPart)
@@ -674,7 +684,8 @@ static const struct {
       {"/rest/block/notxdetails/", rest_block_notxdetails},
       {"/rest/block/", rest_block_extended},
       {"/rest/chaininfo", rest_chaininfo},
-      {"/rest/mempool/info", rest_mempool_info},
+      {"/rest/mempool/info", rest_mempool_info_basic},
+      {"/rest/mempool/info/with_fee_histogram", rest_mempool_info_with_fee_histogram},
       {"/rest/mempool/contents", rest_mempool_contents},
       {"/rest/headers/", rest_headers},
       {"/rest/getutxos", rest_getutxos},
