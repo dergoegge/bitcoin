@@ -2352,6 +2352,74 @@ static RPCHelpMan settxfee()
     };
 }
 
+static RPCHelpMan setfeerate()
+{
+    return RPCHelpMan{
+        "setfeerate",
+        "\nSet the transaction fee rate in " + CURRENCY_ATOM + "/vB for this wallet. Overrides the global -paytxfee configuration option.\n"
+        "Can be deactivated by passing 0 as the fee rate, in which case automatic fee selection will be used by default.\n",
+        {
+            {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "The transaction fee rate in " + CURRENCY_ATOM + "/vB to set (0 to unset)"},
+        },
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR, "wallet_name", "Name of the wallet the fee rate setting applies to"},
+                {RPCResult::Type::NUM, "fee_rate", "Fee rate after this operation"},
+                {RPCResult::Type::STR, "result", /* optional */ true, "Description of result, if successful"},
+                {RPCResult::Type::STR, "error", /* optional */ true, "Description of error, if any"},
+            },
+        },
+        RPCExamples{
+            ""
+            "\nSet a fee rate of 1 " + CURRENCY_ATOM + "/vB\n"
+            + HelpExampleCli("setfeerate", "1") +
+            "\nSet a fee rate of 3.141 " + CURRENCY_ATOM + "/vB\n"
+            + HelpExampleCli("setfeerate", "3.141") +
+            "\nSet a fee rate of 7.75 " + CURRENCY_ATOM + "/vB with named arguments\n"
+            + HelpExampleCli("-named setfeerate", "amount=7.75") +
+            "\nSet a fee rate of 25 " + CURRENCY_ATOM + "/vB with the RPC\n"
+            + HelpExampleRpc("setfeerate", "25")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            std::shared_ptr<CWallet> const rpc_wallet{GetWalletForJSONRPCRequest(request)};
+            if (!rpc_wallet) return NullUniValue;
+            CWallet& wallet = *rpc_wallet;
+
+            LOCK(wallet.cs_wallet);
+
+            CFeeRate amount{AmountFromValue(request.params[0]), COIN};
+            std::string amount_str{amount.ToString(FeeEstimateMode::SAT_B)};
+            std::string current_amount_str{wallet.m_pay_tx_fee.ToString(FeeEstimateMode::SAT_B)};
+            CFeeRate relay_min_feerate(wallet.chain().relayMinFee().GetFeePerK());
+            CFeeRate wallet_min_feerate(wallet.m_min_fee.GetFeePerK());
+            CFeeRate wallet_max_feerate(wallet.m_default_max_tx_fee, 1000);
+            std::string result, error;
+
+            if (amount == CFeeRate(0)) {
+                wallet.m_pay_tx_fee = amount;
+                result = "Fee rate for transactions with this wallet successfully unset. By default, automatic fee selection will be used.";
+            } else if (amount < relay_min_feerate) {
+                error = strprintf("The requested fee rate of %s cannot be less than the minimum relay fee rate of %s. The current setting of %s for this wallet remains unchanged.", amount_str, relay_min_feerate.ToString(FeeEstimateMode::SAT_B), current_amount_str);
+            } else if (amount < wallet_min_feerate) {
+                error = strprintf("The requested fee rate of %s cannot be less than the wallet min fee rate of %s. The current setting of %s for this wallet remains unchanged.", amount_str, wallet_min_feerate.ToString(FeeEstimateMode::SAT_B), current_amount_str);
+            } else if (amount > wallet_max_feerate) {
+                error = strprintf("The requested fee rate of %s cannot be greater than the wallet max fee rate of %s. The current setting of %s for this wallet remains unchanged.", amount_str, wallet_max_feerate.ToString(FeeEstimateMode::SAT_B), current_amount_str);
+            } else {
+                wallet.m_pay_tx_fee = amount;
+                result = "Fee rate for transactions with this wallet successfully set to " + amount_str;
+            }
+
+            UniValue obj(UniValue::VOBJ);
+            obj.pushKV("wallet_name", wallet.GetName());
+            obj.pushKV("fee_rate", UniValue(UniValue::VNUM, wallet.m_pay_tx_fee.SatsToString()));
+            if (!result.empty()) obj.pushKV("result", result);
+            if (!error.empty()) obj.pushKV("error", error);
+            return obj;
+        },
+    };
+}
+
 static RPCHelpMan getbalances()
 {
     return RPCHelpMan{
@@ -4574,6 +4642,7 @@ static const CRPCCommand commands[] =
     { "wallet",             "send",                             &send,                          {"outputs","conf_target","estimate_mode","fee_rate","options"} },
     { "wallet",             "sendmany",                         &sendmany,                      {"dummy","amounts","minconf","comment","subtractfeefrom","replaceable","conf_target","estimate_mode","fee_rate","verbose"} },
     { "wallet",             "sendtoaddress",                    &sendtoaddress,                 {"address","amount","comment","comment_to","subtractfeefromamount","replaceable","conf_target","estimate_mode","avoid_reuse","fee_rate","verbose"} },
+    { "wallet",             "setfeerate",                       &setfeerate,                    {"amount"} },
     { "wallet",             "sethdseed",                        &sethdseed,                     {"newkeypool","seed"} },
     { "wallet",             "setlabel",                         &setlabel,                      {"address","label"} },
     { "wallet",             "settxfee",                         &settxfee,                      {"amount"} },
