@@ -24,6 +24,7 @@
 #include <index/coinstatsindex.h>
 #include <index/txindex.h>
 #include <init/common.h>
+#include <index/txottlindex.h>
 #include <interfaces/chain.h>
 #include <interfaces/node.h>
 #include <mapport.h>
@@ -166,6 +167,9 @@ void Interrupt(NodeContext& node)
     if (g_txindex) {
         g_txindex->Interrupt();
     }
+    if (g_txottlindex) {
+        g_txottlindex->Interrupt();
+    }
     ForEachBlockFilterIndex([](BlockFilterIndex& index) { index.Interrupt(); });
     if (g_coin_stats_index) {
         g_coin_stats_index->Interrupt();
@@ -248,6 +252,11 @@ void Shutdown(NodeContext& node)
     }
     ForEachBlockFilterIndex([](BlockFilterIndex& index) { index.Stop(); });
     DestroyAllBlockFilterIndexes();
+
+    if (g_txottlindex) {
+        g_txottlindex->Stop();
+        g_txottlindex.reset();
+    }
 
     // Any future callbacks will be dropped. This should absolutely be safe - if
     // missing a callback results in an unrecoverable situation, unclean shutdown
@@ -415,6 +424,7 @@ void SetupServerArgs(NodeContext& node)
     hidden_args.emplace_back("-sysperms");
 #endif
     argsman.AddArg("-txindex", strprintf("Maintain a full transaction index, used by the getrawtransaction rpc call (default: %u)", DEFAULT_TXINDEX), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
+    argsman.AddArg("-txottlindex", strprintf("Maintain an index of transaction output time to live values. (default: %u)", false), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-blockfilterindex=<type>",
                  strprintf("Maintain an index of compact filters by block (default: %s, values: %s).", DEFAULT_BLOCKFILTERINDEX, ListBlockFilterTypes()) +
                  " If <type> is not supplied or if <type> = 1, indexes for all known types are enabled.",
@@ -1566,6 +1576,11 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         if (!g_coin_stats_index->Start(::ChainstateActive())) {
             return false;
         }
+    }
+
+    if (args.GetBoolArg("-txottlindex", false)) {
+        g_txottlindex = MakeUnique<TxoTtlIndex>(nMaxTxIndexCache << 20, false, fReindex);
+        g_txottlindex->Start();
     }
 
     // ********************************************************* Step 9: load wallet

@@ -336,6 +336,8 @@ libbitcoin_server_a_SOURCES = \
   index/blockfilterindex.cpp \
   index/coinstatsindex.cpp \
   index/txindex.cpp \
+  index/txottlindex.cpp \
+  txottlblock.cpp \
   init.cpp \
   mapport.cpp \
   miner.cpp \
