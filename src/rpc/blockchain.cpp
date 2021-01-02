@@ -14,6 +14,7 @@
 #include <core_io.h>
 #include <hash.h>
 #include <index/blockfilterindex.h>
+#include <index/txottlindex.h>
 #include <node/coinstats.h>
 #include <node/context.h>
 #include <node/utxo_snapshot.h>
@@ -2476,6 +2477,44 @@ static RPCHelpMan dumptxoutset()
     };
 }
 
+static RPCHelpMan getblockttls()
+{
+    return RPCHelpMan{
+        "getblockttls",
+        "\nPrint the ttls for a block\n",
+        {
+            {"height", RPCArg::Type::NUM, RPCArg::Optional::NO, "Height of the block."},
+        },
+        RPCResult{
+            RPCResult::Type::OBJ, "", "", {
+                                              {RPCResult::Type::ARR, "ttls", "", {
+                                                                                     {RPCResult::Type::NUM, "", ""},
+                                                                                 }},
+                                          }},
+        RPCExamples{HelpExampleCli("getblockttls", "100")},
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            std::vector<TxoTtlBlock> blocks;
+            CBlockIndex index;
+
+            int height = request.params[0].get_int();
+            index.nHeight = height + 1;
+            if (!g_txottlindex->LookupTtlBlocks(height, index, blocks)) {
+                throw JSONRPCError(RPC_MISC_ERROR, "Could not fetch ttls for given block.");
+            }
+
+            UniValue value(UniValue::VOBJ);
+            UniValue ttl_array(UniValue::VARR);
+
+            for (const TxoTtl& ttl : blocks.at(0).GetTtls(height)) {
+                ttl_array.push_back((int32_t)ttl.m_value);
+            }
+
+            value.pushKV("ttls", ttl_array);
+            return value;
+        },
+    };
+}
+
 void RegisterBlockchainRPCCommands(CRPCTable &t)
 {
 // clang-format off
@@ -2515,6 +2554,7 @@ static const CRPCCommand commands[] =
     { "hidden",             "waitforblockheight",     &waitforblockheight,     {"height","timeout"} },
     { "hidden",             "syncwithvalidationinterfacequeue", &syncwithvalidationinterfacequeue, {} },
     { "hidden",             "dumptxoutset",           &dumptxoutset,           {"path"} },
+    { "hidden",             "getblockttls",           &getblockttls,           {"height"} },
 };
 // clang-format on
     for (const auto& c : commands) {
