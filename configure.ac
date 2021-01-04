@@ -1994,6 +1994,7 @@ LIBS_TEMP="$LIBS"
 unset LIBS
 LIBS="$LIBS_TEMP"
 
+AC_CONFIG_SUBDIRS([src/utreexo])
 ac_configure_args="${ac_configure_args} --disable-shared --with-pic --enable-benchmark=no --enable-module-recovery --enable-module-schnorrsig"
 AC_CONFIG_SUBDIRS([src/secp256k1])
 

@@ -6,7 +6,7 @@
 print-%: FORCE
 	@echo '$*'='$($*)'
 
-DIST_SUBDIRS = secp256k1
+DIST_SUBDIRS = secp256k1 utreexo
 
 AM_LDFLAGS = $(LIBTOOL_LDFLAGS) $(HARDENED_LDFLAGS) $(GPROF_LDFLAGS) $(SANITIZER_LDFLAGS) $(LTO_LDFLAGS) $(CORE_LDFLAGS)
 AM_CXXFLAGS = $(DEBUG_CXXFLAGS) $(HARDENED_CXXFLAGS) $(WARN_CXXFLAGS) $(NOWARN_CXXFLAGS) $(ERROR_CXXFLAGS) $(GPROF_CXXFLAGS) $(SANITIZER_CXXFLAGS) $(LTO_CXXFLAGS) $(CORE_CXXFLAGS)
@@ -23,7 +23,7 @@ noinst_PROGRAMS =
 TESTS =
 BENCHMARKS =
 
-BITCOIN_INCLUDES=-I$(builddir) -I$(srcdir)/$(MINISKETCH_INCLUDE_DIR_INT) -I$(srcdir)/secp256k1/include -I$(srcdir)/$(UNIVALUE_INCLUDE_DIR_INT) $(BOOST_CPPFLAGS) $(LEVELDB_CPPFLAGS)
+BITCOIN_INCLUDES=-I$(builddir) -I$(srcdir)/utreexo/include -I$(srcdir)/$(MINISKETCH_INCLUDE_DIR_INT) -I$(srcdir)/secp256k1/include -I$(srcdir)/$(UNIVALUE_INCLUDE_DIR_INT) $(BOOST_CPPFLAGS) $(LEVELDB_CPPFLAGS)
 
 LIBBITCOIN_NODE=libbitcoin_node.a
 LIBBITCOIN_COMMON=libbitcoin_common.a
@@ -33,6 +33,7 @@ LIBBITCOIN_UTIL=libbitcoin_util.a
 LIBBITCOIN_CRYPTO_BASE=crypto/libbitcoin_crypto_base.la
 LIBBITCOINQT=qt/libbitcoinqt.a
 LIBSECP256K1=secp256k1/libsecp256k1.la
+LIBUTREEXO=utreexo/libutreexo.la
 
 if ENABLE_ZMQ
 LIBBITCOIN_ZMQ=libbitcoin_zmq.a
@@ -68,6 +69,8 @@ endif
 noinst_LTLIBRARIES += $(LIBBITCOIN_CRYPTO)
 
 $(LIBSECP256K1): $(wildcard secp256k1/src/*.h) $(wildcard secp256k1/src/*.c) $(wildcard secp256k1/include/*)
+	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F)
+$(LIBUTREEXO): $(wildcard utreexo/src/*.h) $(wildcard utreexo/src/*.cpp) $(wildcard utreexo/include/*)
 	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F)
 
 # Make is not made aware of per-object dependencies to avoid limiting building parallelization
@@ -723,7 +726,8 @@ bitcoin_bin_ldadd = \
   $(LIBBITCOIN_CRYPTO) \
   $(LIBLEVELDB) \
   $(LIBMEMENV) \
-  $(LIBSECP256K1)
+  $(LIBSECP256K1) \
+  $(LIBUTREEXO)
 
 bitcoin_bin_ldadd += $(BDB_LIBS) $(MINIUPNPC_LIBS) $(NATPMP_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS) $(SQLITE_LIBS)
 
@@ -774,7 +778,8 @@ bitcoin_tx_LDADD = \
   $(LIBBITCOIN_UTIL) \
   $(LIBBITCOIN_CONSENSUS) \
   $(LIBBITCOIN_CRYPTO) \
-  $(LIBSECP256K1)
+  $(LIBSECP256K1) \
+  $(LIBUTREEXO)
 #
 
 # bitcoin-wallet binary #
@@ -792,6 +797,7 @@ bitcoin_wallet_LDADD = \
   $(LIBBITCOIN_CONSENSUS) \
   $(LIBBITCOIN_CRYPTO) \
   $(LIBSECP256K1) \
+  $(LIBUTREEXO) \
   $(BDB_LIBS) \
   $(SQLITE_LIBS)
 
@@ -816,7 +822,8 @@ bitcoin_util_LDADD = \
   $(LIBUNIVALUE) \
   $(LIBBITCOIN_CONSENSUS) \
   $(LIBBITCOIN_CRYPTO) \
-  $(LIBSECP256K1)
+  $(LIBSECP256K1) \
+  $(LIBUTREEXO)
 #
 
 # bitcoin-chainstate binary #
@@ -828,7 +835,7 @@ bitcoin_chainstate_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 # bitcoin-chainstate against libbitcoinkernel as a shared or static library by
 # setting --{en,dis}able-shared.
 bitcoin_chainstate_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(PTHREAD_FLAGS)
-bitcoin_chainstate_LDADD = $(LIBBITCOINKERNEL)
+bitcoin_chainstate_LDADD = $(LIBBITCOINKERNEL) $(LIBUTREEXO)
 #
 
 # bitcoinkernel library #
@@ -949,8 +956,8 @@ include_HEADERS = script/bitcoinconsensus.h
 libbitcoinconsensus_la_SOURCES = support/cleanse.cpp $(crypto_libbitcoin_crypto_base_la_SOURCES) $(libbitcoin_consensus_a_SOURCES)
 
 libbitcoinconsensus_la_LDFLAGS = $(AM_LDFLAGS) -no-undefined $(RELDFLAGS)
-libbitcoinconsensus_la_LIBADD = $(LIBSECP256K1)
-libbitcoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(builddir)/obj -I$(srcdir)/secp256k1/include -DBUILD_BITCOIN_INTERNAL
+libbitcoinconsensus_la_LIBADD = $(LIBSECP256K1) $(LIBUTREEXO)
+libbitcoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(builddir)/obj -I$(srcdir)/secp256k1/include -I$(srcdir)/utreexo/include -DBUILD_BITCOIN_INTERNAL
 libbitcoinconsensus_la_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 
 endif
@@ -996,6 +1003,7 @@ $(top_srcdir)/$(subdir)/config/bitcoin-config.h.in:  $(am__configure_deps)
 
 clean-local:
 	-$(MAKE) -C secp256k1 clean
+	-$(MAKE) -C utreexo clean
 	-rm -f leveldb/*/*.gcda leveldb/*/*.gcno leveldb/helpers/memenv/*.gcda leveldb/helpers/memenv/*.gcno
 	-rm -f config.h
 	-rm -rf test/__pycache__
