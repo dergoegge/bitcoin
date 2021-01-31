@@ -22,6 +22,7 @@
 #include <httpserver.h>
 #include <index/blockfilterindex.h>
 #include <index/coinstatsindex.h>
+#include <index/blockproofindex.h>
 #include <index/txindex.h>
 #include <init/common.h>
 #include <index/txottlindex.h>
@@ -169,6 +170,9 @@ void Interrupt(NodeContext& node)
     }
     if (g_txottlindex) {
         g_txottlindex->Interrupt();
+    }
+    if (g_blockproofindex) {
+        g_blockproofindex->Interrupt();
     }
     ForEachBlockFilterIndex([](BlockFilterIndex& index) { index.Interrupt(); });
     if (g_coin_stats_index) {
@@ -425,6 +429,7 @@ void SetupServerArgs(NodeContext& node)
 #endif
     argsman.AddArg("-txindex", strprintf("Maintain a full transaction index, used by the getrawtransaction rpc call (default: %u)", DEFAULT_TXINDEX), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-txottlindex", strprintf("Maintain an index of transaction output time to live values. (default: %u)", false), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
+    argsman.AddArg("-blockproofindex", strprintf("Maintain an index of transaction output inclusion proofs. (default: %u)", false), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-blockfilterindex=<type>",
                  strprintf("Maintain an index of compact filters by block (default: %s, values: %s).", DEFAULT_BLOCKFILTERINDEX, ListBlockFilterTypes()) +
                  " If <type> is not supplied or if <type> = 1, indexes for all known types are enabled.",
@@ -1579,8 +1584,13 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     }
 
     if (args.GetBoolArg("-txottlindex", false)) {
-        g_txottlindex = MakeUnique<TxoTtlIndex>(nMaxTxIndexCache << 20, false, fReindex);
-        g_txottlindex->Start();
+        g_txottlindex = std::make_unique<TxoTtlIndex>(nMaxTxIndexCache << 20, false, fReindex);
+        g_txottlindex->Start(::ChainstateActive());
+    }
+
+    if (args.GetBoolArg("-blockproofindex", false)) {
+        g_blockproofindex = std::make_unique<BlockProofIndex>(nMaxTxIndexCache << 20, false, fReindex);
+        g_blockproofindex->Start(::ChainstateActive());
     }
 
     // ********************************************************* Step 9: load wallet

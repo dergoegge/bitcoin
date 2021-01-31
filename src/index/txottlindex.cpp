@@ -3,11 +3,13 @@
 #include <undo.h>
 #include <unordered_set>
 #include <util/system.h>
-#include <validation.h>
+#include <node/blockstorage.h>
 
 std::unique_ptr<TxoTtlIndex> g_txottlindex;
 
 constexpr char DB_TTLBLOCK_POS = 'P';
+constexpr char DB_BLOCK_HEIGHT = 't';
+
 
 constexpr unsigned int MAX_TTL_FILE_SIZE = 0x1000000; // 16 MiB
 /** The pre-allocation chunk size for ttl?????.dat files */
@@ -15,25 +17,48 @@ constexpr unsigned int TTL_FILE_CHUNK_SIZE = 0x100000; // 1 MiB
 
 struct DBVal {
     FlatFilePos pos;
-    size_t size;
+    int size;
 
     SERIALIZE_METHODS(DBVal, obj) { READWRITE(obj.pos, obj.size); }
 };
 
+struct DBHeightKey {
+    int height;
+
+    DBHeightKey() : height(0) {}
+    explicit DBHeightKey(int height_in) : height(height_in) {}
+
+    template<typename Stream>
+    void Serialize(Stream& s) const
+    {
+        ser_writedata8(s, DB_BLOCK_HEIGHT);
+        ser_writedata32be(s, height);
+    }
+
+    template<typename Stream>
+    void Unserialize(Stream& s)
+    {
+        char prefix = ser_readdata8(s);
+        if (prefix != DB_BLOCK_HEIGHT) {
+            throw std::ios_base::failure("Invalid format for ttl index DB height key");
+        }
+        height = ser_readdata32be(s);
+    }
+};
 
 TxoTtlIndex::TxoTtlIndex(size_t n_cache_size, bool f_memory, bool f_wipe)
 {
-    fs::path path = GetDataDir() / "indexes" / GetName();
+    fs::path path = gArgs.GetDataDirNet() / "indexes" / GetName();
     fs::create_directories(path);
 
-    m_db = MakeUnique<BaseIndex::DB>(path / "db", n_cache_size, f_memory, f_wipe);
-    m_ttlblock_fileseq = MakeUnique<FlatFileSeq>(std::move(path), "ttl", TTL_FILE_CHUNK_SIZE);
+    m_db = std::make_unique<BaseIndex::DB>(path / "db", n_cache_size, f_memory, f_wipe);
+    m_ttlblock_fileseq = std::make_unique<FlatFileSeq>(std::move(path), "ttl", TTL_FILE_CHUNK_SIZE);
 }
 
-bool TxoTtlIndex::ReadRawTxoTtlBlockFromDisk(const int height, std::vector<uint8_t>& raw_block) const
+bool TxoTtlIndex::ReadRawTxoTtlBlockFromDisk(int height, std::vector<uint8_t>& raw_block) const
 {
     DBVal val;
-    if (!m_db->Read(height, val)) return false;
+    if (!m_db->Read(DBHeightKey{height}, val)) return false;
 
     CAutoFile file(m_ttlblock_fileseq->Open(val.pos), SER_DISK, CLIENT_VERSION);
     raw_block.resize(val.size * 4);
@@ -54,9 +79,9 @@ bool TxoTtlIndex::ReadTxoTtlBlockFromDisk(const int height, TxoTtlBlock& ttl_blo
 
 bool TxoTtlIndex::WriteTxoTtlBlockToDisk(const TxoTtlBlock& ttl_block)
 {
-    return ttl_block.ForEachHeight([this](const int height, const std::vector<TxoTtl>& ttls) {
+    return ttl_block.ForEachHeight([this](int height, const std::vector<TxoTtl>& ttls) {
         DBVal val;
-        if (!m_db->Read(height, val)) return false;
+        if (!m_db->Read(DBHeightKey{height}, val)) return false;
 
         CAutoFile file(m_ttlblock_fileseq->Open(val.pos), SER_DISK, CLIENT_VERSION);
         std::vector<uint8_t> raw_block(val.size * 4);
@@ -159,14 +184,14 @@ bool TxoTtlIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex)
             outpoints.erase(txin.prevout);
         }
 
-        for (int txout_index = 0; txout_index < tx->vout.size(); ++txout_index) {
+        for (uint32_t txout_index = 0; txout_index < tx->vout.size(); ++txout_index) {
             // Ignore unspendable outputs.
             if (tx->vout[txout_index].scriptPubKey.IsUnspendable()) continue;
             outpoints.insert(COutPoint{tx->GetHash(), txout_index});
         }
     }
 
-    int ttl_index = 0;
+    uint32_t ttl_index = 0;
     TxoTtlBlock ttl_block;
     for (auto tx_index = 0; tx_index < block.vtx.size(); ++tx_index) {
         const CTransactionRef& tx = block.vtx[tx_index];
@@ -196,7 +221,7 @@ bool TxoTtlIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex)
         }
 
         // Add the block locations of the new utxos to the db.
-        for (auto txout_index = 0; txout_index < tx->vout.size(); ++txout_index) {
+        for (uint32_t txout_index = 0; txout_index < tx->vout.size(); ++txout_index) {
             auto outpoint = outpoints.find(COutPoint{tx->GetHash(), txout_index});
             if (outpoint != outpoints.end()) {
                 db_batch.Write(*outpoint, ttl_index);
@@ -215,7 +240,7 @@ bool TxoTtlIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex)
     if (n_ttl_bytes == 0) return false;
 
     // Save the position of the ttl block in the index db.
-    if (!m_db->Write(pindex->nHeight, DBVal{m_next_ttlblock_pos, ttl_index})) {
+    if (!m_db->Write(DBHeightKey{pindex->nHeight}, DBVal{m_next_ttlblock_pos, static_cast<int>(ttl_index)})) {
         return false;
     }
 
@@ -227,7 +252,7 @@ bool TxoTtlIndex::Rewind(const CBlockIndex* current_tip, const CBlockIndex* new_
 {
     // TODO:this will cause ttls blocks to be overwritten, maybe do what the block filter index does?
     DBVal val;
-    if (!m_db->Read(new_tip->nHeight, val)) {
+    if (!m_db->Read(DBHeightKey{new_tip->nHeight}, val)) {
         return false;
     }
 

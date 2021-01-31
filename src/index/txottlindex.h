@@ -18,8 +18,8 @@ private:
     FlatFilePos m_next_ttlblock_pos;
     std::unique_ptr<FlatFileSeq> m_ttlblock_fileseq;
 
-    bool ReadRawTxoTtlBlockFromDisk(const int height, std::vector<uint8_t>& raw_block) const;
-    bool ReadTxoTtlBlockFromDisk(const int height, TxoTtlBlock& ttl_block) const;
+    bool ReadRawTxoTtlBlockFromDisk(int height, std::vector<uint8_t>& raw_block) const;
+    bool ReadTxoTtlBlockFromDisk(int height, TxoTtlBlock& ttl_block) const;
     bool WriteTxoTtlBlockToDisk(const TxoTtlBlock& ttl_block);
 
     size_t AllocateForNextTtlBlock(int n_ttls);

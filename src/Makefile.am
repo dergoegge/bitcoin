@@ -1,6 +1,6 @@
-# Copyright (c) 2013-2016 The Bitcoin Core developers
-# Distributed under the MIT software license, see the accompanying
-# file COPYING or http://www.opensource.org/licenses/mit-license.php.
+#Copyright(c) 2013 - 2016 The Bitcoin Core developers
+#Distributed under the MIT software license, see the accompanying
+#file COPYING or http: //www.opensource.org/licenses/mit-license.php.
 
 # Pattern rule to print variables, e.g. make print-top_srcdir
 print-%:
@@ -159,6 +159,8 @@ BITCOIN_CORE_H = \
   index/blockfilterindex.h \
   index/coinstatsindex.h \
   index/disktxpos.h \
+  index/blockproofindex.h \
+  index/txottlindex.h \
   index/txindex.h \
   indirectmap.h \
   init.h \
@@ -341,6 +343,7 @@ libbitcoin_server_a_SOURCES = \
   index/coinstatsindex.cpp \
   index/txindex.cpp \
   index/txottlindex.cpp \
+  index/blockproofindex.cpp \
   txottlblock.cpp \
   init.cpp \
   mapport.cpp \

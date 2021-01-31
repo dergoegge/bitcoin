@@ -37,6 +37,6 @@ public:
 
     std::vector<TxoTtl>& GetTtls(int height);
 
-    bool ForEachHeight(std::function<bool(const int, const std::vector<TxoTtl>&)>) const;
+    bool ForEachHeight(std::function<bool(int, const std::vector<TxoTtl>&)>) const;
 };
 #endif

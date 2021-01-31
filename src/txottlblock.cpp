@@ -2,7 +2,7 @@
 
 void TxoTtlBlock::Unserialize(int height, const std::vector<uint8_t>& bytes)
 {
-    for (int pos = 0; pos < bytes.size() / 4; ++pos) {
+    for (uint32_t pos = 0; pos < bytes.size() / 4; ++pos) {
         m_ttlmap[height].push_back(TxoTtl{pos, ReadLE32(bytes.data() + pos * 4)});
     }
 }
