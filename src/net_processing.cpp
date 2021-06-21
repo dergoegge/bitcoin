@@ -13,6 +13,7 @@
 #include <consensus/validation.h>
 #include <hash.h>
 #include <index/blockfilterindex.h>
+#include <index/blockproofindex.h>
 #include <merkleblock.h>
 #include <netbase.h>
 #include <netmessagemaker.h>
@@ -1732,7 +1733,28 @@ void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& 
     if (!(pindex->nStatus & BLOCK_HAVE_DATA)) {
         return;
     }
+
+    // If we have the blockproofindex enabled and the requesting peer is a Utreexo node then
+    // we should serve proofs.
+    bool serve_utreexo_proofs = gArgs.GetBoolArg("-blockproofindex", false) &&
+                                pfrom.nServices & ServiceFlags::NODE_UTREEXO;
+
     std::shared_ptr<const CBlock> pblock;
+
+    // TODO: read raw undo bytes from disk.
+    CBlockUndo undo;
+    std::vector<uint8_t> proof_bytes;
+
+    if (serve_utreexo_proofs) {
+        if (!g_blockproofindex->LookupRawBlockProof(pindex, proof_bytes)) {
+            return;
+        }
+
+        if (!UndoReadFromDisk(undo, pindex)) {
+            return;
+        }
+    }
+
     if (a_recent_block && a_recent_block->GetHash() == pindex->GetBlockHash()) {
         pblock = a_recent_block;
     } else if (inv.IsMsgWitnessBlk()) {
@@ -1742,7 +1764,16 @@ void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& 
         if (!ReadRawBlockFromDisk(block_data, pindex, m_chainparams.MessageStart())) {
             assert(!"cannot load block from disk");
         }
-        m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::BLOCK, MakeSpan(block_data)));
+
+        if (serve_utreexo_proofs) {
+            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::BLOCK,
+                                                        MakeSpan(block_data),
+                                                        undo,
+                                                        MakeSpan(proof_bytes)));
+        } else {
+            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::BLOCK, MakeSpan(block_data)));
+        }
+
         // Don't set pblock as we've sent the block
     } else {
         // Send block from disk
@@ -1754,9 +1785,24 @@ void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& 
     }
     if (pblock) {
         if (inv.IsMsgBlk()) {
-            m_connman.PushMessage(&pfrom, msgMaker.Make(SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::BLOCK, *pblock));
+            if (serve_utreexo_proofs) {
+                m_connman.PushMessage(&pfrom, msgMaker.Make(SERIALIZE_TRANSACTION_NO_WITNESS,
+                                                            NetMsgType::BLOCK,
+                                                            *pblock,
+                                                            undo,
+                                                            MakeSpan(proof_bytes)));
+            } else {
+                m_connman.PushMessage(&pfrom, msgMaker.Make(SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::BLOCK, *pblock));
+            }
         } else if (inv.IsMsgWitnessBlk()) {
-            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::BLOCK, *pblock));
+            if (serve_utreexo_proofs) {
+                m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::BLOCK,
+                                                            *pblock,
+                                                            undo,
+                                                            MakeSpan(proof_bytes)));
+            } else {
+                m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::BLOCK, *pblock));
+            }
         } else if (inv.IsMsgFilteredBlk()) {
             bool sendMerkleBlock = false;
             CMerkleBlock merkleBlock;
