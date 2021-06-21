@@ -15,6 +15,8 @@
 #include <deploymentstatus.h>
 #include <hash.h>
 #include <index/blockfilterindex.h>
+#include <index/blockproofindex.h>
+#include <utreexo.h>
 #include <merkleblock.h>
 #include <netbase.h>
 #include <netmessagemaker.h>
@@ -1873,31 +1875,69 @@ void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& 
     if (!(pindex->nStatus & BLOCK_HAVE_DATA)) {
         return;
     }
+
+    bool is_utreexo_conn = pfrom.GetLocalServices() & ServiceFlags::NODE_UTREEXO &&
+                           pfrom.nServices & ServiceFlags::NODE_UTREEXO;
+    bool serve_proof_from_index = is_utreexo_conn && gArgs.GetBoolArg("-blockproofindex", false);
+
     std::shared_ptr<const CBlock> pblock;
+    std::vector<uint8_t> proof_bytes;
+
+    if (serve_proof_from_index &&
+        !g_blockproofindex->LookupRawBlockProof(pindex, proof_bytes)) {
+        LogPrint(BCLog::NET, "could not lookup block proof. hash=%s, height=%d\n",
+                 pindex->GetBlockHash().ToString(), pindex->nHeight);
+        return;
+    }
+
     if (a_recent_block && a_recent_block->GetHash() == pindex->GetBlockHash()) {
         pblock = a_recent_block;
+		// TODO: bridge nodes store proof on recent blocks
     } else if (inv.IsMsgWitnessBlk()) {
         // Fast-path: in this case it is possible to serve the block directly from disk,
         // as the network format matches the format on disk
         std::vector<uint8_t> block_data;
-        if (!ReadRawBlockFromDisk(block_data, pindex->GetBlockPos(), m_chainparams.MessageStart())) {
+        if (!ReadRawBlockFromDisk(block_data, pindex->GetBlockPos(), m_chainparams.MessageStart(), is_utreexo_conn && !serve_proof_from_index)) {
             assert(!"cannot load block from disk");
         }
-        m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::BLOCK, Span{block_data}));
+
+        if (serve_proof_from_index) {
+            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::BLOCK, Span{block_data}, Span{proof_bytes}));
+        } else {
+            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::BLOCK, Span{block_data}));
+        }
+
         // Don't set pblock as we've sent the block
     } else {
         // Send block from disk
         std::shared_ptr<CBlock> pblockRead = std::make_shared<CBlock>();
-        if (!ReadBlockFromDisk(*pblockRead, pindex, m_chainparams.GetConsensus())) {
+        if (!ReadBlockFromDisk(*pblockRead, pindex, m_chainparams.GetConsensus(), is_utreexo_conn && !serve_proof_from_index)) {
             assert(!"cannot load block from disk");
         }
         pblock = pblockRead;
     }
     if (pblock) {
         if (inv.IsMsgBlk()) {
-            m_connman.PushMessage(&pfrom, msgMaker.Make(SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::BLOCK, *pblock));
+            if (serve_proof_from_index) {
+                m_connman.PushMessage(&pfrom, msgMaker.Make(SERIALIZE_TRANSACTION_NO_WITNESS,
+                                                            NetMsgType::BLOCK,
+                                                            *pblock,
+                                                            Span{proof_bytes}));
+            } else if (is_utreexo_conn) {
+                m_connman.PushMessage(&pfrom, msgMaker.Make(SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_BLOCK_INCLUSION_PROOF,
+                                                            NetMsgType::BLOCK, *pblock));
+            } else {
+                m_connman.PushMessage(&pfrom, msgMaker.Make(SERIALIZE_TRANSACTION_NO_WITNESS,
+                                                            NetMsgType::BLOCK, *pblock));
+            }
         } else if (inv.IsMsgWitnessBlk()) {
-            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::BLOCK, *pblock));
+            if (serve_proof_from_index) {
+                m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::BLOCK, *pblock, Span{proof_bytes}));
+            } else if (is_utreexo_conn) {
+                m_connman.PushMessage(&pfrom, msgMaker.Make(SERIALIZE_BLOCK_INCLUSION_PROOF, NetMsgType::BLOCK, *pblock));
+            } else {
+                m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::BLOCK, *pblock));
+            }
         } else if (inv.IsMsgFilteredBlk()) {
             bool sendMerkleBlock = false;
             CMerkleBlock merkleBlock;
