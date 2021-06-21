@@ -45,6 +45,7 @@ constexpr ServiceFlags ALL_SERVICE_FLAGS[]{
     NODE_WITNESS,
     NODE_COMPACT_FILTERS,
     NODE_NETWORK_LIMITED,
+    NODE_UTREEXO,
 };
 
 constexpr NetPermissionFlags ALL_NET_PERMISSION_FLAGS[]{

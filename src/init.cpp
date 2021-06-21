@@ -1012,6 +1012,9 @@ bool AppInitParameterInteraction(const ArgsManager& args)
     if (args.GetBoolArg("-peerbloomfilters", DEFAULT_PEERBLOOMFILTERS))
         nLocalServices = ServiceFlags(nLocalServices | NODE_BLOOM);
 
+    if (args.GetBoolArg("-blockproofindex", false))
+        nLocalServices = ServiceFlags(nLocalServices | NODE_UTREEXO);
+
     if (args.GetArg("-rpcserialversion", DEFAULT_RPC_SERIALIZE_VERSION) < 0)
         return InitError(Untranslated("rpcserialversion must be non-negative."));
 
