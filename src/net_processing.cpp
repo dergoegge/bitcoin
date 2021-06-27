@@ -3768,7 +3768,19 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         }
 
         std::shared_ptr<CBlock> pblock = std::make_shared<CBlock>();
+        std::shared_ptr<UtxoSetInclusionProof> inclusion_proof = nullptr;
+
         vRecv >> *pblock;
+
+        // TODO: bridge nodes can also verify proofs.
+        if (!gArgs.GetBoolArg("-blockproofindex", false) &&
+            pfrom.GetLocalServices() & ServiceFlags::NODE_UTREEXO &&
+            pfrom.nServices & ServiceFlags::NODE_UTREEXO) {
+            // We are a Utreexo enabled node and so is the remote peer.
+            // We expect the inclusion proof to be appended to the block.
+            inclusion_proof = std::make_shared<UtxoSetInclusionProof>();
+            vRecv >> *inclusion_proof;
+        }
 
         LogPrint(BCLog::NET, "received block %s peer=%d\n", pblock->GetHash().ToString(), pfrom.GetId());
 
