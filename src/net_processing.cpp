@@ -3856,7 +3856,20 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         }
 
         std::shared_ptr<CBlock> pblock = std::make_shared<CBlock>();
-        vRecv >> *pblock;
+
+        int stream_version = vRecv.GetVersion();
+        bool unser_proof = !gArgs.GetBoolArg("-blockproofindex", false) &&
+                           pfrom.GetLocalServices() & ServiceFlags::NODE_UTREEXO &&
+                           pfrom.nServices & ServiceFlags::NODE_UTREEXO;
+
+        if (unser_proof) {
+            // We are a Utreexo enabled node and so is the remote peer.
+            // We expect the inclusion proof to be appended to the block.
+            stream_version |= SERIALIZE_BLOCK_INCLUSION_PROOF;
+        }
+
+        OverrideStream<CDataStream> s(&vRecv, vRecv.GetType(), stream_version);
+        s >> *pblock;
 
         LogPrint(BCLog::NET, "received block %s peer=%d\n", pblock->GetHash().ToString(), pfrom.GetId());
 
