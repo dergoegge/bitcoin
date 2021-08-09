@@ -13,6 +13,7 @@ from test_framework.messages import (
     CInv,
     from_hex,
     msg_block,
+    msg_getdata,
     msg_headers,
     msg_sendcmpct,
 )
@@ -107,6 +108,26 @@ class P2PCompactBlocksBlocksOnly(BitcoinTestFramework):
         p2p_conn_low_bw.send_and_ping(msg_headers(headers=[CBlockHeader(block1)]))
         p2p_conn_low_bw.sync_with_ping()
         assert_equal(p2p_conn_low_bw.last_message['getdata'].inv, [CInv(MSG_CMPCT_BLOCK, block1.sha256)])
+
+        self.log.info("Test that blocksonly nodes still serve compact blocks.")
+
+        def test_for_cmpctblock(block):
+            def test():
+                sha256 = p2p_conn_blocksonly.last_message['cmpctblock'].header_and_shortids.header.rehash()
+                return sha256 == block.sha256
+            return test
+
+        p2p_conn_blocksonly.send_message(msg_getdata([CInv(MSG_CMPCT_BLOCK, block0.sha256)]))
+        p2p_conn_blocksonly.sync_send_with_ping()
+        p2p_conn_blocksonly.wait_until(test_for_cmpctblock(block0))
+
+        # Request high bandwidth mode from node0
+        p2p_conn_blocksonly.send_and_ping(msg_sendcmpct(announce=True, version=2))
+
+        block2 = self.build_block_on_tip()
+        self.nodes[0].submitblock(block1.serialize().hex())
+        self.nodes[0].submitblock(block2.serialize().hex())
+        p2p_conn_blocksonly.wait_until(test_for_cmpctblock(block2))
 
 if __name__ == '__main__':
     P2PCompactBlocksBlocksOnly().main()
