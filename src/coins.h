@@ -85,6 +85,85 @@ public:
     }
 };
 
+class ReconstructableCoin : Coin
+{
+private:
+    enum OutputType : uint8_t {
+        OTHER = 0,
+        P2PKH = 1,
+        P2SH = 2,
+        P2WPKH = 3,
+        P2WSH = 4,
+    };
+
+    OutputType m_type;
+
+public:
+    /** Create a ReconstructableCoin from a regular Coin */
+    ReconstructableCoin(const Coin& coin)
+    {
+        out = coin.out;
+        m_type = OTHER;
+        fCoinBase = coin.fCoinBase;
+        nHeight = coin.nHeight;
+        if (coin.out.scriptPubKey.IsPayToScriptHash()) {
+            m_type = P2SH;
+        } else if (coin.out.scriptPubKey.IsPayToWitnessScriptHash()) {
+        }
+
+        if (m_type == OTHER) {
+            out.scriptPubKey = CScript();
+        }
+    }
+
+    /** Reconstruct a regular Coin from a ReconstructableCoin. */
+    Coin Reconstruct(CTxIn& in) const
+    {
+        CTxOut reconstructed = out;
+        switch (m_type) {
+        case OTHER:
+            break;
+        case P2PKH:
+            break;
+        case P2SH:
+            break;
+        case P2WPKH:
+            break;
+        case P2WSH:
+            break;
+        }
+        return Coin{reconstructed, nHeight, static_cast<bool>(fCoinBase)};
+    }
+
+    template <typename Stream>
+    void Serialize(Stream& s) const
+    {
+        // TODO: This assert might have to be removed.
+        assert(!IsSpent());
+        uint32_t code = nHeight * uint32_t{2} + fCoinBase;
+        ::Serialize(s, VARINT(code));
+        ::Serialize(s, m_type);
+        ::Serialize(s, Using<AmountCompression>(out.nValue));
+        if (m_type == OTHER) {
+            ::Serialize(s, Using<ScriptCompression>(out.scriptPubKey));
+        }
+    }
+
+    template <typename Stream>
+    void Unserialize(Stream& s)
+    {
+        uint32_t code = 0;
+        ::Unserialize(s, VARINT(code));
+        nHeight = code >> 1;
+        fCoinBase = code & 1;
+        ::Unserialize(s, m_type);
+        ::Unserialize(s, Using<AmountCompression>(out.nValue));
+        if (m_type == OTHER) {
+            ::Unserialize(s, Using<ScriptCompression>(out.scriptPubKey));
+        }
+    }
+};
+
 /**
  * A Coin in one level of the coins database caching hierarchy.
  *
