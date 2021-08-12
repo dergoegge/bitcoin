@@ -13,6 +13,7 @@
 #include <serialize.h>
 #include <uint256.h>
 #include <util/hasher.h>
+#include <hash.h>
 
 #include <assert.h>
 #include <stdint.h>
@@ -82,6 +83,138 @@ public:
 
     size_t DynamicMemoryUsage() const {
         return memusage::DynamicUsage(out.scriptPubKey);
+    }
+};
+
+class ReconstructableCoin : Coin
+{
+private:
+    enum OutputType : uint8_t {
+        OTHER = 0,
+        P2PKH = 1,
+        P2SH = 2,
+        P2WPKH = 3,
+        P2WSH = 4,
+    };
+
+    uint8_t m_type;
+
+    CScript ReconstructP2PKH(const CTxIn& in) const
+    {
+        opcodetype op;
+        std::vector<unsigned char> pubkey;
+		CScript::const_iterator it = in.scriptSig.begin();
+        while (it != in.scriptSig.end()) {
+            in.scriptSig.GetOp(it, op, pubkey);
+        }
+        if (!pubkey.empty()) {
+            uint160 pubkey_hash = Hash160(pubkey);
+            return CScript() << OP_DUP << OP_HASH160 << ToByteVector(pubkey_hash) << OP_EQUALVERIFY << OP_CHECKSIG;
+        }
+        return CScript();
+    }
+
+    CScript ReconstructP2SH(const CTxIn& in) const
+    {
+        opcodetype op;
+        std::vector<unsigned char> redeem;
+		CScript::const_iterator it = in.scriptSig.begin();
+        while (it != in.scriptSig.end()) {
+            in.scriptSig.GetOp(it, op, redeem);
+        }
+        uint160 scriptHash = Hash160(redeem);
+        return CScript() << OP_HASH160 << ToByteVector(scriptHash) << OP_EQUAL;
+    }
+
+    CScript ReconstructP2WPKH(const CTxIn& in) const
+    {
+        const auto& prog = in.scriptWitness.stack.back();
+        uint160 scriptHash = Hash160(prog);
+        return CScript() << OP_0 << ToByteVector(scriptHash);
+    }
+
+    CScript ReconstructP2WSH(const CTxIn& in) const
+    {
+        const auto& prog = in.scriptWitness.stack.back();
+        uint256 scriptHash;
+        CSHA256().Write(prog.data(), prog.size()).Finalize(scriptHash.begin());
+        return CScript() << OP_0 << ToByteVector(scriptHash);
+    }
+
+public:
+    ReconstructableCoin() {}
+
+    /** Create a ReconstructableCoin from a regular Coin */
+    ReconstructableCoin(const Coin& coin)
+    {
+        out = coin.out;
+        m_type = OTHER;
+        fCoinBase = coin.fCoinBase;
+        nHeight = coin.nHeight;
+        if (coin.out.scriptPubKey.IsPayToPubkeyHash()) {
+            m_type = P2PKH;
+        } else if (coin.out.scriptPubKey.IsPayToScriptHash()) {
+            m_type = P2SH;
+        } else if (coin.out.scriptPubKey.IsPayToWitnessPubkeyHash()) {
+            m_type = P2WPKH;
+        } else if (coin.out.scriptPubKey.IsPayToWitnessScriptHash()) {
+            m_type = P2WSH;
+        }
+
+        if (m_type != OTHER) {
+            out.scriptPubKey = CScript();
+        }
+    }
+
+    /** Reconstruct a regular Coin from a ReconstructableCoin. */
+    Coin Reconstruct(const CTxIn& in) const
+    {
+        CTxOut reconstructed = out;
+        switch (m_type) {
+        case OTHER:
+            break;
+        case P2PKH:
+            reconstructed.scriptPubKey = ReconstructP2PKH(in);
+            break;
+        case P2SH:
+            reconstructed.scriptPubKey = ReconstructP2SH(in);
+            break;
+        case P2WPKH:
+            reconstructed.scriptPubKey = ReconstructP2WPKH(in);
+            break;
+        case P2WSH:
+            reconstructed.scriptPubKey = ReconstructP2WSH(in);
+            break;
+        }
+        return Coin{reconstructed, nHeight, static_cast<bool>(fCoinBase)};
+    }
+
+    template <typename Stream>
+    void Serialize(Stream& s) const
+    {
+        // TODO: This assert might have to be removed.
+        assert(!IsSpent());
+        uint32_t code = nHeight * uint32_t{2} + fCoinBase;
+        ::Serialize(s, VARINT(code));
+        ::Serialize(s, m_type);
+        ::Serialize(s, Using<AmountCompression>(out.nValue));
+        if (m_type == OTHER) {
+            ::Serialize(s, Using<ScriptCompression>(out.scriptPubKey));
+        }
+    }
+
+    template <typename Stream>
+    void Unserialize(Stream& s)
+    {
+        uint32_t code = 0;
+        ::Unserialize(s, VARINT(code));
+        nHeight = code >> 1;
+        fCoinBase = code & 1;
+        ::Unserialize(s, m_type);
+        ::Unserialize(s, Using<AmountCompression>(out.nValue));
+        if (m_type == OTHER) {
+            ::Unserialize(s, Using<ScriptCompression>(out.scriptPubKey));
+        }
     }
 };
 
