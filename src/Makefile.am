@@ -274,6 +274,7 @@ BITCOIN_CORE_H = \
   util/ui_change_type.h \
   util/url.h \
   util/vector.h \
+  utreexoutils.h \
   validation.h \
   validationinterface.h \
   versionbits.h \
@@ -384,6 +385,7 @@ libbitcoin_node_a_SOURCES = \
   validation.cpp \
   validationinterface.cpp \
   versionbits.cpp \
+  utreexoutils.cpp \
   $(BITCOIN_CORE_H)
 
 if ENABLE_WALLET
