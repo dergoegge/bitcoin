@@ -439,6 +439,7 @@ void SetupServerArgs(ArgsManager& argsman)
     hidden_args.emplace_back("-sysperms");
 #endif
     argsman.AddArg("-txindex", strprintf("Maintain a full transaction index, used by the getrawtransaction rpc call (default: %u)", DEFAULT_TXINDEX), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
+    argsman.AddArg("-compact", strprintf("Reduce storage requirements by becoming a compact state node. (default: %u)", false), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-blockproofindex", strprintf("Maintain an index of transaction output inclusion proofs. (default: %u)", false), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-blockfilterindex=<type>",
                  strprintf("Maintain an index of compact filters by block (default: %s, values: %s).", DEFAULT_BLOCKFILTERINDEX, ListBlockFilterTypes()) +
@@ -1024,8 +1025,13 @@ bool AppInitParameterInteraction(const ArgsManager& args)
     if (args.GetBoolArg("-peerbloomfilters", DEFAULT_PEERBLOOMFILTERS))
         nLocalServices = ServiceFlags(nLocalServices | NODE_BLOOM);
 
-    if (args.GetBoolArg("-blockproofindex", false))
+    if (args.GetBoolArg("-blockproofindex", false) ||
+        args.GetBoolArg("-compact", false)) {
+        if (!args.GetBoolArg("-blocksonly", false)) {
+            return InitError(Untranslated("Compact state and bridge nodes are limited to blocksonly. (this is only temporary until mempool handling is implemented)"));
+        }
         nLocalServices = ServiceFlags(nLocalServices | NODE_UTREEXO);
+    }
 
     if (args.GetIntArg("-rpcserialversion", DEFAULT_RPC_SERIALIZE_VERSION) < 0)
         return InitError(Untranslated("rpcserialversion must be non-negative."));
@@ -1434,6 +1440,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
                                               cache_sizes.coins,
                                               /*block_tree_db_in_memory=*/false,
                                               /*coins_db_in_memory=*/false,
+                                              /*init_accumulator=*/args.GetBoolArg("-compact", false),
                                               /*shutdown_requested=*/ShutdownRequested,
                                               /*coins_error_cb=*/[]() {
                                                   uiInterface.ThreadSafeMessageBox(

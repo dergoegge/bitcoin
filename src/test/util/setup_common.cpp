@@ -203,6 +203,7 @@ TestingSetup::TestingSetup(const std::string& chainName, const std::vector<const
                                            m_cache_sizes.block_tree_db,
                                            m_cache_sizes.coins_db,
                                            m_cache_sizes.coins,
+                                           /*init_accumulator=*/ false,
                                            /*block_tree_db_in_memory=*/true,
                                            /*coins_db_in_memory=*/true);
     assert(!maybe_load_error.has_value());

@@ -1465,6 +1465,12 @@ void CChainState::InitCoinsCache(size_t cache_size_bytes)
     m_coins_views->InitCache();
 }
 
+void CChainState::InitCoinAccumulator()
+{
+    // TODO: restore pollard from roots.
+    m_coin_accumulator = std::make_unique<utreexo::Pollard>(0);
+}
+
 // Note that though this is marked const, we may end up modifying `m_cached_finished_ibd`, which
 // is a performance-related implementation detail. This function must be marked
 // `const` so that `CValidationInterface` clients (which are given a `const CChainState*`)
@@ -2093,6 +2099,36 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
     int64_t nTime2 = GetTimeMicros(); nTimeForks += nTime2 - nTime1;
     LogPrint(BCLog::BENCH, "    - Fork checks: %.2fms [%.2fs (%.2fms/blk)]\n", MILLI * (nTime2 - nTime1), nTimeForks * MICRO, nTimeForks * MILLI / nBlocksTotal);
 
+    std::vector<int> in_skip, out_skip;
+    if (gArgs.GetBoolArg("-compact", false)) {
+        assert(m_coin_accumulator);
+        ComputeBlockSkipLists(block, in_skip, out_skip);
+
+        if (!block.m_inclusion_proof.ReconstructLeaves(m_chain, block.vtx, in_skip)) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "not-enough-coins");
+        }
+
+        std::vector<utreexo::Hash> target_hashes;
+        for (const UtreexoLeafData& leaf_data : block.m_inclusion_proof.GetLeaves()) {
+            CHashWriter writer(SER_GETHASH, PROTOCOL_VERSION);
+            writer << leaf_data;
+            target_hashes.push_back(writer.GetHash256());
+        }
+
+        std::vector<utreexo::Hash> sorted_hashes;
+        SortTargetHashes(block.m_inclusion_proof.GetProof(), target_hashes, sorted_hashes);
+
+        // Verify the UTXO inclusion proof.
+        if (!m_coin_accumulator->Verify(block.m_inclusion_proof.GetProof(), sorted_hashes)) {
+            LogPrintf("ERROR: ConnectBlock(): failed to verify UTXO set inclusion proof\n");
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-inclusion-proof");
+        }
+
+        block.m_inclusion_proof.FillCoinsView(view);
+        assert(sorted_hashes.size() == view.GetCacheSize());
+    }
+
+
     CBlockUndo blockundo;
 
     // Precomputed transaction data pointers must not be invalidated
@@ -2206,6 +2242,33 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
     assert(pindex->phashBlock);
     // add this block to the view's block chain
     view.SetBestBlock(pindex->GetBlockHash());
+
+    if (gArgs.GetBoolArg("-compact", false)) {
+        assert(m_coin_accumulator);
+
+        std::vector<UtreexoLeafData> new_leaves;
+        GetNewLeavesFromBlock(block, pindex->nHeight, out_skip, new_leaves);
+
+        std::vector<utreexo::Leaf> leaves;
+        for (const UtreexoLeafData& leaf_data : new_leaves) {
+            CHashWriter writer(SER_GETHASH, PROTOCOL_VERSION);
+            writer << leaf_data;
+            COutPoint outpoint;
+            leaf_data.GetOutPoint(outpoint);
+            // Mark outputs that are already spent in the mempool as memorable.
+            bool memorable = false;
+            {
+                LOCK(m_mempool->cs);
+                memorable = m_mempool->isSpent(outpoint);
+            }
+            leaves.emplace_back(writer.GetHash256(), memorable);
+        }
+
+        if (!m_coin_accumulator->Modify(leaves, block.m_inclusion_proof.GetProof().GetSortedTargets())) {
+            return error("ConnectBlock(): failed to modify the accumulator");
+        }
+    }
+
 
     int64_t nTime5 = GetTimeMicros(); nTimeIndex += nTime5 - nTime4;
     LogPrint(BCLog::BENCH, "    - Index writing: %.2fms [%.2fs (%.2fms/blk)]\n", MILLI * (nTime5 - nTime4), nTimeIndex * MICRO, nTimeIndex * MILLI / nBlocksTotal);
@@ -2634,8 +2697,13 @@ bool CChainState::ConnectTip(BlockValidationState& state, CBlockIndex* pindexNew
         nTime3 = GetTimeMicros(); nTimeConnectTotal += nTime3 - nTime2;
         assert(nBlocksTotal > 0);
         LogPrint(BCLog::BENCH, "  - Connect total: %.2fms [%.2fs (%.2fms/blk)]\n", (nTime3 - nTime2) * MILLI, nTimeConnectTotal * MICRO, nTimeConnectTotal * MILLI / nBlocksTotal);
-        bool flushed = view.Flush();
-        assert(flushed);
+
+        if (gArgs.GetBoolArg("-compact", false)) {
+            CoinsTip().SetBestBlock(view.GetBestBlock());
+        } else {
+            bool flushed = view.Flush();
+            assert(flushed);
+        }
     }
     int64_t nTime4 = GetTimeMicros(); nTimeFlush += nTime4 - nTime3;
     LogPrint(BCLog::BENCH, "  - Flush: %.2fms [%.2fs (%.2fms/blk)]\n", (nTime4 - nTime3) * MILLI, nTimeFlush * MICRO, nTimeFlush * MILLI / nBlocksTotal);
