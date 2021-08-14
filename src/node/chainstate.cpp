@@ -20,6 +20,7 @@ std::optional<ChainstateLoadingError> LoadChainstate(bool fReset,
                                                      int64_t nCoinCacheUsage,
                                                      bool block_tree_db_in_memory,
                                                      bool coins_db_in_memory,
+                                                     bool init_accumulator,
                                                      std::function<bool()> shutdown_requested,
                                                      std::function<void()> coins_error_cb)
 {
@@ -81,6 +82,10 @@ std::optional<ChainstateLoadingError> LoadChainstate(bool fReset,
     // block tree into BlockIndex()!
 
     for (CChainState* chainstate : chainman.GetAll()) {
+        if (init_accumulator) {
+            chainstate->InitCoinAccumulator();
+        }
+
         chainstate->InitCoinsDB(
             /* cache_size_bytes */ nCoinDBCache,
             /* in_memory */ coins_db_in_memory,
