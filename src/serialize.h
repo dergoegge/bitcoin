@@ -1004,6 +1004,7 @@ public:
         return nSize;
     }
 
+    int GetType() const { return 0; }
     int GetVersion() const { return nVersion; }
 };
 
