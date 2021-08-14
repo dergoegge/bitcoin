@@ -589,6 +589,8 @@ protected:
     //! Manages the UTXO set, which is a reflection of the contents of `m_chain`.
     std::unique_ptr<CoinsViews> m_coins_views;
 
+    std::unique_ptr<utreexo::Pollard> m_coin_accumulator;
+
 public:
     //! Reference to a BlockManager instance which itself is shared across all
     //! CChainState instances.
@@ -614,6 +616,8 @@ public:
     //! Initialize the in-memory coins cache (to be done after the health of the on-disk database
     //! is verified).
     void InitCoinsCache(size_t cache_size_bytes) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
+    void InitCoinAccumulator();
 
     //! @returns whether or not the CoinsViews object has been fully initialized and we can
     //!          safely flush this object to disk.
