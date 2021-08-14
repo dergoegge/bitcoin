@@ -15,6 +15,7 @@
 #include <uint256.h>
 #include <version.h>
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -133,6 +134,13 @@ public:
     uint256 GetSHA256() {
         uint256 result;
         ctx.Finalize(result.begin());
+        return result;
+    }
+
+    std::array<uint8_t, 32> GetHash256()
+    {
+        std::array<uint8_t, 32> result;
+        ctx.Finalize(result.data());
         return result;
     }
 
