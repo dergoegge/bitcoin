@@ -1013,6 +1013,11 @@ bool AppInitParameterInteraction(const ArgsManager& args)
     if (args.GetBoolArg("-peerbloomfilters", DEFAULT_PEERBLOOMFILTERS))
         nLocalServices = ServiceFlags(nLocalServices | NODE_BLOOM);
 
+    if (args.GetBoolArg("-compact", false) &&
+        args.GetArg("-checklevel", DEFAULT_CHECKLEVEL) != 0) {
+        return InitError(Untranslated("VerifyDB is currently incompatible with the accumulator. -checklevel has to be set to 0. (this is only temporary)"));
+    }
+
     if (args.GetBoolArg("-blockproofindex", false) ||
         args.GetBoolArg("-compact", false)) {
         if (!args.GetBoolArg("-blocksonly", false)) {

@@ -1120,8 +1120,31 @@ void CChainState::InitCoinsCache(size_t cache_size_bytes)
 
 void CChainState::InitCoinAccumulator()
 {
-    // TODO: restore pollard from roots.
-    m_coin_accumulator = std::make_unique<utreexo::Pollard>(0);
+    uint64_t num_leaves = 0;
+    std::vector<utreexo::Hash> roots;
+
+    fs::path compact_state_path = gArgs.GetDataDirNet() / "compact_chainstate";
+    FILE* compact_state_file = fsbridge::fopen(compact_state_path, "rb");
+    CAutoFile compact_state_file_in(compact_state_file, SER_DISK, CLIENT_VERSION);
+    if (compact_state_file_in.IsNull()) {
+        m_coin_accumulator = std::make_unique<utreexo::Pollard>(0);
+        return;
+    }
+
+    compact_state_file_in >> num_leaves;
+    try {
+        while (true) {
+            utreexo::Hash hash;
+            compact_state_file_in.read(reinterpret_cast<char*>(hash.data()), 32);
+            roots.push_back(hash);
+        }
+    } catch (const std::exception& e) {
+        // TODO: don't rely on end of file to read roots.
+    }
+
+    m_coin_accumulator = std::make_unique<utreexo::Pollard>(roots, num_leaves);
+
+    LogPrintf("%s: num_leaves=%d, num_roots=%d\n", __func__, num_leaves, roots.size());
 }
 
 // Note that though this is marked const, we may end up modifying `m_cached_finished_ibd`, which
@@ -2106,6 +2129,31 @@ bool CChainState::FlushStateToDisk(
             // Flush the chainstate (which may refer to block index entries).
             if (!CoinsTip().Flush())
                 return AbortNode(state, "Failed to write to coin database");
+
+            if (gArgs.GetBoolArg("-compact", false)) {
+                assert(m_coin_accumulator);
+
+                // Save the accumualtor roots.
+                std::vector<utreexo::Hash> roots;
+                m_coin_accumulator->Roots(roots);
+
+                LogPrintf("Flushing accumulator state to disk. (num_leaves=%d, num_roots=%d)\n",
+                          m_coin_accumulator->NumLeaves(),
+                          roots.size());
+
+                fs::path compact_state_path = gArgs.GetDataDirNet() / "compact_chainstate";
+                FILE* compact_state_file = fsbridge::fopen(compact_state_path, "wb");
+                CAutoFile compact_state_file_out(compact_state_file, SER_DISK, CLIENT_VERSION);
+                if (compact_state_file_out.IsNull()) {
+                    return AbortNode(state, "Failed to open compact state file");
+                }
+
+                compact_state_file_out << m_coin_accumulator->NumLeaves();
+                for (const utreexo::Hash& hash : roots) {
+                    compact_state_file_out.write(reinterpret_cast<const char*>(hash.data()), 32);
+                }
+            }
+
             nLastFlush = nNow;
             full_flush_completed = true;
         }
