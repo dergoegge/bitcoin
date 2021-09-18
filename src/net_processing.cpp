@@ -3300,6 +3300,26 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         if (result.m_result_type == MempoolAcceptResult::ResultType::VALID) {
             m_mempool.check(m_chainman.ActiveChainstate());
+            if (g_blockproofindex) {
+                UtxoSetInclusionProof tx_proof;
+                std::vector<UtreexoLeafData> leaves;
+                for (const CTxIn& in : ptx->vin) {
+                    const CCoinsViewCache& view = m_chainman.ActiveChainstate().CoinsTip();
+                    Coin coin;
+                    if (!view.GetCoin(in.prevout, coin)) continue;
+                    const CBlockIndex* index = m_chainman.ActiveChain()[coin.nHeight];
+                    if (!index) continue;
+
+                    leaves.push_back(UtreexoLeafData(in.prevout, index->GetBlockHash(), coin));
+                }
+
+                if (g_blockproofindex->Prove(m_chainman.ActiveChain().Tip(), std::move(leaves), tx_proof)) {
+					tx_proof.GetProof().Print();
+                    LogPrintf("tx_size: %d, proof_size: %d\n",
+                              GetSerializeSize(*ptx.get()),
+                              GetSerializeSize(tx_proof));
+                }
+            }
             // As this version of the transaction was acceptable, we can forget about any
             // requests for it.
             m_txrequest.ForgetTxHash(tx.GetHash());

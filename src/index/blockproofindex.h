@@ -45,6 +45,9 @@ public:
 
     bool LookupBlockProof(int height, UtxoSetInclusionProof& proof) const;
     bool LookupRawBlockProof(const CBlockIndex* index, std::vector<uint8_t>& proof_bytes) const;
+    bool Prove(const CBlockIndex* index,
+               const std::vector<UtreexoLeafData>&& leaves,
+               UtxoSetInclusionProof& proof);
 };
 
 extern std::unique_ptr<BlockProofIndex> g_blockproofindex;

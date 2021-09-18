@@ -126,6 +126,7 @@ public:
     void FillCoinsView(CCoinsViewCache& view);
 
     const utreexo::BatchProof& GetProof() const { return m_proof; }
+    utreexo::BatchProof& GetProof() { return m_proof; }
     const std::vector<UtreexoLeafData>& GetLeaves() const { return m_leaves; }
     std::vector<UtreexoLeafData>& GetLeaves() { return m_leaves; }
     const std::vector<ReconstructableCoin>& GetCoins() const { return m_coins; }

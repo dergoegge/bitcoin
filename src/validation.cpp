@@ -6,6 +6,8 @@
 #include <memory>
 #include <validation.h>
 
+
+#include <index/blockproofindex.h>
 #include <arith_uint256.h>
 #include <chain.h>
 #include <chainparams.h>
@@ -2035,6 +2037,9 @@ bool CChainState::FlushStateToDisk(
             ForEachBlockFilterIndex([&](BlockFilterIndex& index) {
                last_prune = std::max(1, std::min(last_prune, index.GetSummary().best_block_height));
             });
+            if (g_blockproofindex) {
+                last_prune = std::max(1, std::min(last_prune, g_blockproofindex->GetSummary().best_block_height));
+            }
 
             if (nManualPruneHeight > 0) {
                 LOG_TIME_MILLIS_WITH_CATEGORY("find files to prune (manual)", BCLog::BENCH);

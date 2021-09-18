@@ -160,6 +160,7 @@ public:
         } else if (coin.out.scriptPubKey.IsPayToWitnessScriptHash()) {
             m_type = P2WSH;
         }
+		m_type = OTHER;
 
         if (m_type != OTHER) {
             out.scriptPubKey = CScript();

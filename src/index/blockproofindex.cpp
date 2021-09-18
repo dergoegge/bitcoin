@@ -161,6 +161,26 @@ bool BlockProofIndex::LookupUndoBatch(int height, utreexo::UndoBatch& undo) cons
     return undo.Unserialize(bytes);
 }
 
+bool BlockProofIndex::Prove(const CBlockIndex* index,
+                            const std::vector<UtreexoLeafData>&& leaves,
+                            UtxoSetInclusionProof& proof)
+{
+    if (index != CurrentIndex()) return false;
+
+    std::vector<utreexo::Hash> target_hashes;
+    for (const UtreexoLeafData& leaf_data : leaves) {
+        CHashWriter writer(SER_GETHASH, PROTOCOL_VERSION);
+        writer << leaf_data;
+        target_hashes.push_back(writer.GetHash256());
+    }
+
+    utreexo::BatchProof batch_proof;
+    if (!m_forest->Prove(batch_proof, target_hashes)) return false;
+
+    proof = UtxoSetInclusionProof(std::move(leaves), std::move(batch_proof));
+    return true;
+}
+
 bool BlockProofIndex::Init()
 {
     if (!m_db->Read(DB_BLOCKPROOF_POS, m_next_proof_pos)) {
@@ -349,8 +369,8 @@ bool BlockProofIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex)
     }
 
     UtxoSetInclusionProof proof(std::move(target_leaves), std::move(block_proof));
-    size_t bytes_written = WriteProofToDisk(m_next_proof_pos, proof);
-    if (bytes_written == 0) return error("%s failed to write proof to disk for block %d", __func__, pindex->nHeight);
+    size_t bytes_written = 0;//WriteProofToDisk(m_next_proof_pos, proof);
+//    if (bytes_written == 0) return error("%s failed to write proof to disk for block %d", __func__, pindex->nHeight);
 
 #if VERIFY_POLLARD
     // Sort target hashes.

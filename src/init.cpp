@@ -853,8 +853,8 @@ bool AppInitParameterInteraction(const ArgsManager& args)
             return InitError(_("Prune mode is incompatible with -txindex."));
         if (args.GetBoolArg("-coinstatsindex", DEFAULT_COINSTATSINDEX))
             return InitError(_("Prune mode is incompatible with -coinstatsindex."));
-        if (args.GetBoolArg("-blockproofindex", false))
-            return InitError(_("Prune mode is incompatible with -blockproofindex."));
+/*        if (args.GetBoolArg("-blockproofindex", false))
+            return InitError(_("Prune mode is incompatible with -blockproofindex."));*/
     }
 
     // If -forcednsseed is set to true, ensure -dnsseed has not been set to false
@@ -1018,8 +1018,7 @@ bool AppInitParameterInteraction(const ArgsManager& args)
         return InitError(Untranslated("VerifyDB is currently incompatible with the accumulator. -checklevel has to be set to 0. (this is only temporary)"));
     }
 
-    if (args.GetBoolArg("-blockproofindex", false) ||
-        args.GetBoolArg("-compact", false)) {
+    if (args.GetBoolArg("-compact", false)) {
         if (!args.GetBoolArg("-blocksonly", false)) {
             return InitError(Untranslated("Compact state and bridge nodes are limited to blocksonly. (this is only temporary until mempool handling is implemented)"));
         }
