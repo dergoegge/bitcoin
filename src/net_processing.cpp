@@ -4089,6 +4089,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 pfrom.m_relays_txs = true;
                 if (m_evictor) {
                     m_evictor->UpdateRelaysTxs(pfrom.GetId(), true);
+                    m_evictor->UpdateLoadedBloomFilter(pfrom.GetId(), true);
                 }
             }
             pfrom.m_bloom_filter_loaded = true;
@@ -4143,6 +4144,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         if (m_evictor) {
             m_evictor->UpdateRelaysTxs(pfrom.GetId(), true);
+            m_evictor->UpdateLoadedBloomFilter(pfrom.GetId(), false);
         }
 
         return;
