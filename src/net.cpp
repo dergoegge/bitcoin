@@ -1063,7 +1063,8 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
                                             pnode->m_permissionFlags, //ok, already set
                                             true, // m_is_inbound;
                                             false, // fSuccessfullyConnected
-                                            0 // nBlocksInFlight
+                                            0, // nBlocksInFlight
+                                            0 // m_last_block_announcement
                                           };
         m_evictor->AddCandidate(std::move(candidate));
     }
@@ -2145,7 +2146,8 @@ void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFai
                                             pnode->m_permissionFlags, //ok, already set
                                             false, // m_is_inbound;
                                             false, // fSuccessfullyConnected
-                                            0 // nBlocksInFlight
+                                            0, // nBlocksInFlight
+                                            0 // m_last_block_announcement
                                           };
         m_evictor->AddCandidate(std::move(candidate));
     }

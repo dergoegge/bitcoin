@@ -34,6 +34,7 @@ struct NodeEvictionCandidate
     bool m_is_inbound;
     bool fSuccessfullyConnected;
     int nBlocksInFlight;
+    int64_t m_last_block_announcement;
 };
 
 /**
@@ -97,6 +98,8 @@ public:
     void UpdateSuccessfullyConnected(NodeId id, bool connected);
 
     void UpdateBlocksInFlight(NodeId id, bool add);
+
+    void UpdateLastBlockAnnouncementTime(NodeId id, int64_t time);
 };
 
 #endif // BITCOIN_EVICTION_H
