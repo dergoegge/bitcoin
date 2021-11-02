@@ -2776,7 +2776,12 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 LOCK(tx_relay->m_bloom_filter_mutex);
                 tx_relay->m_relay_txs = fRelay; // set to true after we get the first filter* message
             }
-            if (fRelay) pfrom.m_relays_txs = true;
+            if (fRelay) {
+                pfrom.m_relays_txs = true;
+                if (m_evictor) {
+                    m_evictor->UpdateRelaysTxs(pfrom.GetId(), true);
+                }
+            }
         }
 
         if((nServices & NODE_WITNESS))
@@ -4081,6 +4086,10 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 LOCK(tx_relay->m_bloom_filter_mutex);
                 tx_relay->m_bloom_filter.reset(new CBloomFilter(filter));
                 tx_relay->m_relay_txs = true;
+                pfrom.m_relays_txs = true;
+                if (m_evictor) {
+                    m_evictor->UpdateRelaysTxs(pfrom.GetId(), true);
+                }
             }
             pfrom.m_bloom_filter_loaded = true;
         }
@@ -4131,6 +4140,11 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         }
         pfrom.m_bloom_filter_loaded = false;
         pfrom.m_relays_txs = true;
+
+        if (m_evictor) {
+            m_evictor->UpdateRelaysTxs(pfrom.GetId(), true);
+        }
+
         return;
     }
 
