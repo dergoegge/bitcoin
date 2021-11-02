@@ -246,3 +246,11 @@ void Evictor::UpdateMinPingTime(NodeId id, std::chrono::microseconds ping_time)
         it->second.m_min_ping_time = std::min(it->second.m_min_ping_time, ping_time);
     }
 }
+
+void Evictor::UpdateLatestBlockTime(NodeId id, std::chrono::seconds time)
+{
+    LOCK(m_candidates_mutex);
+    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
+        it->second.m_last_block_time = time;
+    }
+}

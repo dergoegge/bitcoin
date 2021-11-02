@@ -80,6 +80,8 @@ public:
 
     /** A ping-pong round trip has completed successfully. Update minimum ping time. */
     void UpdateMinPingTime(NodeId id, std::chrono::microseconds ping_time);
+
+    void UpdateLatestBlockTime(NodeId id, std::chrono::seconds time);
 };
 
 #endif // BITCOIN_EVICTION_H
