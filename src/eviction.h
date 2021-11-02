@@ -84,6 +84,8 @@ public:
     void UpdateLatestBlockTime(NodeId id, std::chrono::seconds time);
 
     void UpdateLatestTxTime(NodeId id, std::chrono::seconds time);
+
+    void UpdateRelevantServices(NodeId id, bool relevant);
 };
 
 #endif // BITCOIN_EVICTION_H

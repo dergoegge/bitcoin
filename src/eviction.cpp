@@ -262,3 +262,10 @@ void Evictor::UpdateLatestTxTime(NodeId id, std::chrono::seconds time)
         it->second.m_last_tx_time = time;
     }
 }
+void Evictor::UpdateRelevantServices(NodeId id, bool relevant)
+{
+    LOCK(m_candidates_mutex);
+    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
+        it->second.fRelevantServices = relevant;
+    }
+}
