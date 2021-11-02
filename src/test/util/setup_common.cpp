@@ -11,6 +11,7 @@
 #include <consensus/params.h>
 #include <consensus/validation.h>
 #include <crypto/sha256.h>
+#include <eviction.h>
 #include <init.h>
 #include <interfaces/chain.h>
 #include <net.h>
@@ -186,6 +187,7 @@ ChainTestingSetup::~ChainTestingSetup()
     GetMainSignals().UnregisterBackgroundSignalScheduler();
     m_node.connman.reset();
     m_node.banman.reset();
+    m_node.evictor.reset();
     m_node.addrman.reset();
     m_node.netgroupman.reset();
     m_node.args = nullptr;
@@ -231,9 +233,10 @@ TestingSetup::TestingSetup(const std::string& chainName, const std::vector<const
                                                /*deterministic=*/false,
                                                m_node.args->GetIntArg("-checkaddrman", 0));
     m_node.banman = std::make_unique<BanMan>(m_args.GetDataDirBase() / "banlist", nullptr, DEFAULT_MISBEHAVING_BANTIME);
+    m_node.evictor = std::make_unique<Evictor>();
     m_node.connman = std::make_unique<ConnmanTestMsg>(0x1337, 0x1337, *m_node.addrman, *m_node.netgroupman); // Deterministic randomness for tests.
     m_node.peerman = PeerManager::make(*m_node.connman, *m_node.addrman,
-                                       m_node.banman.get(), *m_node.chainman,
+                                       m_node.banman.get(), m_node.evictor.get(), *m_node.chainman,
                                        *m_node.mempool, false);
     {
         CConnman::Options options;

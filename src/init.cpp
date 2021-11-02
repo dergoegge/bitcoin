@@ -17,6 +17,7 @@
 #include <compat/sanity.h>
 #include <consensus/amount.h>
 #include <deploymentstatus.h>
+#include <eviction.h>
 #include <fs.h>
 #include <hash.h>
 #include <httprpc.h>
@@ -239,6 +240,7 @@ void Shutdown(NodeContext& node)
     node.peerman.reset();
     node.connman.reset();
     node.banman.reset();
+    node.evictor.reset();
     node.addrman.reset();
     node.netgroupman.reset();
 
@@ -1275,6 +1277,8 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 
     assert(!node.banman);
     node.banman = std::make_unique<BanMan>(gArgs.GetDataDirNet() / "banlist", &uiInterface, args.GetIntArg("-bantime", DEFAULT_MISBEHAVING_BANTIME));
+    assert(!node.evictor);
+    node.evictor = std::make_unique<Evictor>();
     assert(!node.connman);
     node.connman = std::make_unique<CConnman>(GetRand<uint64_t>(),
                                               GetRand<uint64_t>(),
@@ -1559,8 +1563,8 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 
     assert(!node.peerman);
     node.peerman = PeerManager::make(*node.connman, *node.addrman, node.banman.get(),
-                                     chainman, *node.mempool, ignores_incoming_txs);
-    RegisterValidationInterface(node.peerman.get());
+                                     node.evictor.get(), chainman, *node.mempool, ignores_incoming_txs);
+    RegisterValidationInterface(node.peerman.get()); 
 
     // ********************************************************* Step 8: start indexers
     if (args.GetBoolArg("-txindex", DEFAULT_TXINDEX)) {
@@ -1703,6 +1707,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     connOptions.nMaxFeeler = MAX_FEELER_CONNECTIONS;
     connOptions.uiInterface = &uiInterface;
     connOptions.m_banman = node.banman.get();
+    connOptions.m_evictor = node.evictor.get();
     connOptions.m_msgproc = node.peerman.get();
     connOptions.nSendBufferMaxSize = 1000 * args.GetIntArg("-maxsendbuffer", DEFAULT_MAXSENDBUFFER);
     connOptions.nReceiveFloodSize = 1000 * args.GetIntArg("-maxreceivebuffer", DEFAULT_MAXRECEIVEBUFFER);
