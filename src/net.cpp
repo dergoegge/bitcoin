@@ -1061,7 +1061,8 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
                                             pnode->addr.IsLocal(), // ok, already set
                                             pnode->ConnectedThroughNetwork(), // ok, already set
                                             pnode->m_permissionFlags, //ok, already set
-                                            true // m_is_inbound;
+                                            true, // m_is_inbound;
+                                            false // fSuccessfullyConnected
                                           };
         m_evictor->AddCandidate(std::move(candidate));
     }
@@ -2141,7 +2142,8 @@ void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFai
                                             pnode->addr.IsLocal(), // ok, already set
                                             pnode->ConnectedThroughNetwork(), // ok, already set
                                             pnode->m_permissionFlags, //ok, already set
-                                            false // m_is_inbound;
+                                            false, // m_is_inbound;
+                                            false // fSuccessfullyConnected
                                           };
         m_evictor->AddCandidate(std::move(candidate));
     }
