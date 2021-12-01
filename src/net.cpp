@@ -891,8 +891,6 @@ bool CConnman::AttemptToEvictConnection()
 
         LOCK(m_nodes_mutex);
         for (const CNode* node : m_nodes) {
-            if (node->fDisconnect)
-                continue;
             NodeEvictionCandidate candidate = {node->GetId(), node->m_connected, node->m_min_ping_time,
                                                node->m_last_block_time, node->m_last_tx_time,
                                                HasAllDesirableServiceFlags(node->nServices),
