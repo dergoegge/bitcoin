@@ -349,6 +349,7 @@ libbitcoin_node_a_SOURCES = \
   consensus/tx_verify.cpp \
   dbwrapper.cpp \
   deploymentstatus.cpp \
+  eviction.cpp \
   flatfile.cpp \
   httprpc.cpp \
   httpserver.cpp \
