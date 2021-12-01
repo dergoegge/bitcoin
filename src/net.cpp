@@ -891,10 +891,6 @@ bool CConnman::AttemptToEvictConnection()
 
         LOCK(m_nodes_mutex);
         for (const CNode* node : m_nodes) {
-            if (node->HasPermission(NetPermissionFlags::NoBan))
-                continue;
-            if (!node->IsInboundConn())
-                continue;
             if (node->fDisconnect)
                 continue;
             NodeEvictionCandidate candidate = {node->GetId(), node->m_connected, node->m_min_ping_time,
@@ -902,7 +898,9 @@ bool CConnman::AttemptToEvictConnection()
                                                HasAllDesirableServiceFlags(node->nServices),
                                                node->m_relays_txs.load(), node->m_bloom_filter_loaded.load(),
                                                node->nKeyedNetGroup, node->m_prefer_evict, node->addr.IsLocal(),
-                                               node->ConnectedThroughNetwork()};
+                                               node->ConnectedThroughNetwork(),
+                                               node->HasPermission(NetPermissionFlags::NoBan),
+                                               node->IsInboundConn()};
             vEvictionCandidates.push_back(candidate);
         }
     }
