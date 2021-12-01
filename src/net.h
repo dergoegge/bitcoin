@@ -45,6 +45,7 @@ class AddrMan;
 class BanMan;
 class CNode;
 class CScheduler;
+class Evictor;
 struct bilingual_str;
 
 /** Default for -whitelistrelay. */
@@ -743,6 +744,7 @@ public:
         CClientUIInterface* uiInterface = nullptr;
         NetEventsInterface* m_msgproc = nullptr;
         BanMan* m_banman = nullptr;
+        Evictor* m_evictor = nullptr;
         unsigned int nSendBufferMaxSize = 0;
         unsigned int nReceiveFloodSize = 0;
         uint64_t nMaxOutboundLimit = 0;
@@ -775,6 +777,7 @@ public:
         m_max_outbound = m_max_outbound_full_relay + m_max_outbound_block_relay + nMaxFeeler;
         m_client_interface = connOptions.uiInterface;
         m_banman = connOptions.m_banman;
+        m_evictor = connOptions.m_evictor;
         m_msgproc = connOptions.m_msgproc;
         nSendBufferMaxSize = connOptions.nSendBufferMaxSize;
         nReceiveFloodSize = connOptions.nReceiveFloodSize;
@@ -1163,6 +1166,8 @@ private:
     NetEventsInterface* m_msgproc;
     /** Pointer to this node's banman. May be nullptr - check existence before dereferencing. */
     BanMan* m_banman;
+    /** Pointer to this node's evictor. May be nullptr - check existence before dereferencing. */
+    Evictor* m_evictor;
 
     /**
      * Addresses that were saved during the previous clean shutdown. We'll
