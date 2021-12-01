@@ -141,6 +141,7 @@ BITCOIN_CORE_H = \
   compat/endian.h \
   compat/sanity.h \
   compressor.h \
+  connection_types.h \
   consensus/consensus.h \
   consensus/tx_check.h \
   consensus/tx_verify.h \
@@ -347,6 +348,7 @@ libbitcoin_node_a_SOURCES = \
   blockfilter.cpp \
   chain.cpp \
   consensus/tx_verify.cpp \
+  connection_types.cpp \
   dbwrapper.cpp \
   deploymentstatus.cpp \
   eviction.cpp \
