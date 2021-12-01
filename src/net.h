@@ -11,6 +11,7 @@
 #include <compat.h>
 #include <consensus/amount.h>
 #include <crypto/siphash.h>
+#include <eviction.h>
 #include <hash.h>
 #include <i2p.h>
 #include <net_permissions.h>
@@ -1270,22 +1271,6 @@ extern std::function<void(const CAddress& addr,
                           Span<const unsigned char> data,
                           bool is_incoming)>
     CaptureMessage;
-
-struct NodeEvictionCandidate
-{
-    NodeId id;
-    std::chrono::seconds m_connected;
-    std::chrono::microseconds m_min_ping_time;
-    std::chrono::seconds m_last_block_time;
-    std::chrono::seconds m_last_tx_time;
-    bool fRelevantServices;
-    bool m_relay_txs;
-    bool fBloomFilter;
-    uint64_t nKeyedNetGroup;
-    bool prefer_evict;
-    bool m_is_local;
-    Network m_network;
-};
 
 /**
  * Select an inbound peer to evict after filtering out (protecting) peers having
