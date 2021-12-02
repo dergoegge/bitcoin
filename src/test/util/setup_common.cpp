@@ -233,7 +233,7 @@ TestingSetup::TestingSetup(const std::string& chainName, const std::vector<const
                                                /*deterministic=*/false,
                                                m_node.args->GetIntArg("-checkaddrman", 0));
     m_node.banman = std::make_unique<BanMan>(m_args.GetDataDirBase() / "banlist", nullptr, DEFAULT_MISBEHAVING_BANTIME);
-    m_node.evictor = std::make_unique<Evictor>();
+    m_node.evictor = std::make_unique<Evictor>(MAX_BLOCK_RELAY_ONLY_CONNECTIONS, MAX_OUTBOUND_FULL_RELAY_CONNECTIONS);
     m_node.connman = std::make_unique<ConnmanTestMsg>(0x1337, 0x1337, *m_node.addrman, *m_node.netgroupman); // Deterministic randomness for tests.
     m_node.peerman = PeerManager::make(*m_node.connman, *m_node.addrman,
                                        m_node.banman.get(), m_node.evictor.get(), *m_node.chainman,
