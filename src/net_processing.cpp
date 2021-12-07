@@ -4504,10 +4504,19 @@ void PeerManagerImpl::CheckForStaleTipAndEvictPeers()
 
     auto now{GetTime<std::chrono::seconds>()};
 
-    if (auto nodeid = EvictExtraBlockOutboundPeers(now); nodeid.has_value()) {
+
+    auto nodeid = EvictExtraBlockOutboundPeers(now);
+    if (m_evictor) {
+        assert(nodeid == m_evictor->EvictExtraBlockOutboundPeers(now));
+    }
+    if (nodeid.has_value()) {
         m_connman.DisconnectNode(nodeid.value());
     }
-    if (auto nodeid = EvictExtraFullOutboundPeers(now); nodeid.has_value()) {
+    nodeid = EvictExtraFullOutboundPeers(now);
+    if (m_evictor) {
+        assert(nodeid == m_evictor->EvictExtraFullOutboundPeers(now));
+    }
+    if (nodeid.has_value()) {
         m_connman.DisconnectNode(nodeid.value());
 
         // If we disconnected an extra peer, that means we successfully
