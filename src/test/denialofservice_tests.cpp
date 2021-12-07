@@ -110,7 +110,7 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
     peerLogic->FinalizeNode(dummyNode1);
 }
 
-static void AddRandomOutboundPeer(NodeId& id, std::vector<CNode*>& vNodes, PeerManager& peerLogic, ConnmanTestMsg& connman, ConnectionType connType)
+static void AddRandomOutboundPeer(NodeId& id, std::vector<CNode*>& vNodes, PeerManager& peerLogic, ConnmanTestMsg& connman, ConnectionType connType, Evictor& evictor)
 {
     CAddress addr(ip(g_insecure_rand_ctx.randbits(32)), NODE_NONE);
     vNodes.emplace_back(new CNode{id++,
@@ -129,11 +129,34 @@ static void AddRandomOutboundPeer(NodeId& id, std::vector<CNode*>& vNodes, PeerM
     peerLogic.InitializeNode(&node);
     node.fSuccessfullyConnected = true;
 
+    NodeEvictionCandidate candidate = { node.GetId(),
+                                        node.m_connected, // ok, already set
+                                        std::chrono::microseconds::max(), // m_min_ping_time, set by ProcessMessage
+                                        0s, // nLastBlockTime set by ProcessBlock
+                                        0s, // nLastTxTime set by ProcessMessage
+                                        false, // fRelevantServices set by ProcessMessage handshake
+                                        false, // m_relays_txs set by ProcessMessage handshake
+                                        false, // m_bloom_filter_loaded set by ProcessMessage at any time
+                                        node.nKeyedNetGroup, // ok, already set
+                                        false, // m_prefer_evict
+                                        node.addr.IsLocal(), // ok, already set
+                                        node.ConnectedThroughNetwork(), // ok, already set
+                                        node.m_permissionFlags, //ok, already set
+                                        false, // m_is_inbound;
+                                        true, // fSuccessfullyConnected
+                                        0, // nBlocksInFlight
+                                        0, // m_last_block_announcement
+                                        false, // m_slow_chain_protected
+                                        ConnectionType::OUTBOUND_FULL_RELAY // m_conn_type
+                                      };
+    evictor.AddCandidate(std::move(candidate));
+
     connman.AddTestNode(node);
 }
 
 BOOST_AUTO_TEST_CASE(stale_tip_peer_management)
 {
+    NodeId id{0};
     auto evictor = std::make_unique<Evictor>(MAX_BLOCK_RELAY_ONLY_CONNECTIONS, MAX_OUTBOUND_FULL_RELAY_CONNECTIONS);
     auto connman = std::make_unique<ConnmanTestMsg>(0x1337, 0x1337, *m_node.addrman, *m_node.netgroupman);
     auto peerLogic = PeerManager::make(*connman, *m_node.addrman, nullptr,
@@ -153,7 +176,7 @@ BOOST_AUTO_TEST_CASE(stale_tip_peer_management)
 
     // Mock some outbound peers
     for (int i = 0; i < max_outbound_full_relay; ++i) {
-        AddRandomOutboundPeer(id, vNodes, *peerLogic, *connman, ConnectionType::OUTBOUND_FULL_RELAY);
+        AddRandomOutboundPeer(id, vNodes, *peerLogic, *connman, ConnectionType::OUTBOUND_FULL_RELAY, *evictor);
     }
 
     peerLogic->CheckForStaleTipAndEvictPeers();
@@ -179,7 +202,7 @@ BOOST_AUTO_TEST_CASE(stale_tip_peer_management)
     // on the next check (since we're mocking the time to be in the future, the
     // required time connected check should be satisfied).
     SetMockTime(time_init);
-    AddRandomOutboundPeer(id, vNodes, *peerLogic, *connman, ConnectionType::OUTBOUND_FULL_RELAY);
+    AddRandomOutboundPeer(id, vNodes, *peerLogic, *connman, ConnectionType::OUTBOUND_FULL_RELAY, *evictor);
     SetMockTime(time_later);
 
     peerLogic->CheckForStaleTipAndEvictPeers();
@@ -193,7 +216,9 @@ BOOST_AUTO_TEST_CASE(stale_tip_peer_management)
 
     // Update the last announced block time for the last
     // peer, and check that the next newest node gets evicted.
-    peerLogic->UpdateLastBlockAnnounceTime(vNodes.back()->GetId(), GetTime());
+    auto curtime = GetTime();
+    peerLogic->UpdateLastBlockAnnounceTime(vNodes.back()->GetId(), curtime);
+    evictor->UpdateLastBlockAnnouncementTime(vNodes.back()->GetId(), curtime);
 
     peerLogic->CheckForStaleTipAndEvictPeers();
     for (int i = 0; i < max_outbound_full_relay - 1; ++i) {
@@ -229,7 +254,7 @@ BOOST_AUTO_TEST_CASE(block_relay_only_eviction)
 
     // Add block-relay-only peers up to the limit
     for (int i = 0; i < max_outbound_block_relay; ++i) {
-        AddRandomOutboundPeer(id, vNodes, *peerLogic, *connman, ConnectionType::BLOCK_RELAY);
+        AddRandomOutboundPeer(id, vNodes, *peerLogic, *connman, ConnectionType::BLOCK_RELAY, *evictor);
     }
     peerLogic->CheckForStaleTipAndEvictPeers();
 
@@ -238,7 +263,7 @@ BOOST_AUTO_TEST_CASE(block_relay_only_eviction)
     }
 
     // Add an extra block-relay-only peer breaking the limit (mocks logic in ThreadOpenConnections)
-    AddRandomOutboundPeer(id, vNodes, *peerLogic, *connman, ConnectionType::BLOCK_RELAY);
+    AddRandomOutboundPeer(id, vNodes, *peerLogic, *connman, ConnectionType::BLOCK_RELAY, *evictor);
     peerLogic->CheckForStaleTipAndEvictPeers();
 
     // The extra peer should only get marked for eviction after MINIMUM_CONNECT_TIME
@@ -393,7 +418,7 @@ BOOST_AUTO_TEST_CASE(DoS_bantime)
     auto banman = std::make_unique<BanMan>(m_args.GetDataDirBase() / "banlist", nullptr, DEFAULT_MISBEHAVING_BANTIME);
     auto evictor = std::make_unique<Evictor>(MAX_BLOCK_RELAY_ONLY_CONNECTIONS, MAX_OUTBOUND_FULL_RELAY_CONNECTIONS);
     auto connman = std::make_unique<CConnman>(0x1337, 0x1337, *m_node.addrman, *m_node.netgroupman);
-    auto peerLogic = PeerManager::make(chainparams, *connman, *m_node.addrman, banman.get(),
+    auto peerLogic = PeerManager::make(*connman, *m_node.addrman, banman.get(),
                                        evictor.get(), *m_node.chainman, *m_node.mempool, false);
 
     banman->ClearBanned();
