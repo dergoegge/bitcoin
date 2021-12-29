@@ -7,7 +7,6 @@
 #include <logging.h>
 #include <util/threadnames.h>
 #include <util/string.h>
-#include <util/time.h>
 
 #include <algorithm>
 #include <array>
@@ -334,4 +333,27 @@ void BCLog::Logger::ShrinkDebugFile()
     }
     else if (file != nullptr)
         fclose(file);
+}
+
+void BCLog::LogRatelimiter::MaybeReset()
+{
+    const std::chrono::seconds now = GetTime<std::chrono::seconds>();
+    if ((now - m_last_reset) >= m_reset_interval) {
+        m_available_bytes = m_max_bytes;
+        m_last_reset = now;
+        m_dropped_bytes = 0;
+    }
+}
+
+bool BCLog::LogRatelimiter::Consume(uint64_t bytes)
+{
+    MaybeReset();
+
+    if (bytes > m_available_bytes) {
+        m_dropped_bytes += bytes;
+        return false;
+    }
+
+    m_available_bytes -= bytes;
+    return true;
 }

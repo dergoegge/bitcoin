@@ -30,4 +30,35 @@ BOOST_AUTO_TEST_CASE(logging_timer)
     BOOST_CHECK_EQUAL(sec_timer.LogMsg("test secs"), "tests: test secs (1.00s)");
 }
 
+BOOST_AUTO_TEST_CASE(logging_ratelimit_window)
+{
+    SetMockTime(std::chrono::minutes{1});
+    BCLog::LogRatelimiter window{std::chrono::minutes{1}, 1000};
+
+    // Check that window gets initialised correctly.
+    BOOST_CHECK_EQUAL(window.GetAvailableBytes(), 1000ull);
+    BOOST_CHECK_EQUAL(window.GetDroppedBytes(), 0ull);
+
+    BOOST_CHECK(window.Consume(500));
+    BOOST_CHECK_EQUAL(window.GetAvailableBytes(), 500ull);
+    BOOST_CHECK_EQUAL(window.GetDroppedBytes(), 0ull);
+
+    BOOST_CHECK(window.Consume(500));
+    BOOST_CHECK_EQUAL(window.GetAvailableBytes(), 0ull);
+    BOOST_CHECK_EQUAL(window.GetDroppedBytes(), 0ull);
+
+    // Consuming another 500 bytes after already having consumed a 1000 bytes should fail.
+    BOOST_CHECK(!window.Consume(500));
+    BOOST_CHECK_EQUAL(window.GetAvailableBytes(), 0ull);
+    BOOST_CHECK_EQUAL(window.GetDroppedBytes(), 500ull);
+
+    // Advance time by one minute. This should trigger a window reset.
+    SetMockTime(std::chrono::minutes{2});
+
+    // Check that the window resets as expected when new bytes are consumed.
+    BOOST_CHECK(window.Consume(100));
+    BOOST_CHECK_EQUAL(window.GetAvailableBytes(), 900ull);
+    BOOST_CHECK_EQUAL(window.GetDroppedBytes(), 0ull);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

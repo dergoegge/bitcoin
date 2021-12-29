@@ -10,6 +10,7 @@
 #include <tinyformat.h>
 #include <threadsafety.h>
 #include <util/string.h>
+#include <util/time.h>
 
 #include <atomic>
 #include <cstdint>
@@ -64,6 +65,49 @@ namespace BCLog {
         UTIL        = (1 << 25),
         BLOCKSTORE  = (1 << 26),
         ALL         = ~(uint32_t)0,
+    };
+
+    //! Fixed window rate limiter for logging.
+    class LogRatelimiter
+    {
+    private:
+        //! Timestamp of the last window reset.
+        std::chrono::seconds m_last_reset;
+        //! Interval after which the window is reset.
+        std::chrono::seconds m_reset_interval;
+        //! Remaining bytes in the current window interval.
+        uint64_t m_available_bytes;
+        //! Number of bytes that were not consumed within the current window.
+        uint64_t m_dropped_bytes{0};
+        //! The maximum number of bytes that can be logged withon one window.
+        uint64_t m_max_bytes;
+
+        //! Reset the window if the window interval has passed since the last reset.
+        void MaybeReset();
+
+    public:
+        LogRatelimiter() {}
+
+        LogRatelimiter(std::chrono::seconds interval, uint64_t max_bytes)
+            : m_reset_interval{interval}, m_available_bytes{max_bytes}, m_max_bytes{max_bytes}
+        {
+            m_last_reset = GetTime<std::chrono::seconds>();
+        }
+
+        //! Consume bytes from the window if enough bytes are available.
+        //!
+        //! Returns whether or not enough bytes were available.
+        bool Consume(uint64_t bytes);
+
+        uint64_t GetAvailableBytes() const
+        {
+            return m_available_bytes;
+        }
+
+        uint64_t GetDroppedBytes() const
+        {
+            return m_dropped_bytes;
+        }
     };
 
     class Logger
@@ -152,7 +196,6 @@ namespace BCLog {
 
         bool DefaultShrinkDebugFile() const;
     };
-
 } // namespace BCLog
 
 BCLog::Logger& LogInstance();
