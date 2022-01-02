@@ -14,6 +14,9 @@
 
 const char * const DEFAULT_DEBUGLOGFILE = "debug.log";
 
+static constexpr std::chrono::hours RATELIMIT_WINDOW_SIZE{1};
+static constexpr uint64_t RATELIMIT_WINDOW_MAX_BYTES{1024 * 1024};
+
 BCLog::Logger& LogInstance()
 {
 /**
@@ -261,7 +264,43 @@ void BCLog::Logger::LogPrintStr(const std::string& str, const std::string& loggi
 
     str_prefixed = LogTimestampStr(str_prefixed);
 
-    m_started_new_line = !str.empty() && str[str.size()-1] == '\n';
+    if (m_ratelimiters.find(source_location) == m_ratelimiters.end()) {
+        // We create a new rate limit window for this source location on its first log attempt.
+        m_ratelimiters.emplace(source_location, LogRatelimiter{RATELIMIT_WINDOW_SIZE, RATELIMIT_WINDOW_MAX_BYTES});
+    }
+
+    uint64_t dropped_bytes = m_ratelimiters[source_location].GetDroppedBytes();
+    bool was_ratelimited = m_supressed_locations.find(source_location) != m_supressed_locations.end();
+    bool is_ratelimited = !skip_ratelimiting && m_ratelimit &&
+                          !m_ratelimiters[source_location].Consume(str_prefixed.size());
+    if (!is_ratelimited && was_ratelimited) {
+        // Logging will restart for this source location.
+        m_supressed_locations.erase(source_location);
+
+        str_prefixed = LogTimestampStr(strprintf(
+            "Restarting logging from %s:%d (%s): "
+            "(%d MiB) were dropped during the last hour.\n%s",
+            source_location.m_file, source_location.m_line, logging_function,
+            dropped_bytes / (1024 * 1024), str_prefixed));
+    } else if (is_ratelimited && !was_ratelimited) {
+        // Logging from this source location will be supressed until the current window resets.
+        m_supressed_locations.insert(source_location);
+
+        str_prefixed = LogTimestampStr(strprintf(
+            "Excessive logging detected from %s:%d (%s): >%d MiB logged during the last hour."
+            "Suppressing logging to disk from this source location for up to one hour. "
+            "Console logging unaffected. Last log entry: %s",
+            source_location.m_file, source_location.m_line, logging_function,
+            RATELIMIT_WINDOW_MAX_BYTES / (1024 * 1024), str_prefixed));
+    }
+
+    // To avoid confusion caused by dropped log messages when debugging an issue,
+    // we prefix log lines with "[*]" when there are any supressed source locations.
+    if (m_supressed_locations.size() > 0) {
+        str_prefixed.insert(0, "[*] ");
+    }
+
+    m_started_new_line = !str.empty() && str[str.size() - 1] == '\n';
 
     if (m_buffering) {
         // buffer if we haven't started logging yet
@@ -277,7 +316,7 @@ void BCLog::Logger::LogPrintStr(const std::string& str, const std::string& loggi
     for (const auto& cb : m_print_callbacks) {
         cb(str_prefixed);
     }
-    if (m_print_to_file) {
+    if (m_print_to_file && !(is_ratelimited && was_ratelimited)) {
         assert(m_fileout != nullptr);
 
         // reopen the log file, if requested
