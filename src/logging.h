@@ -173,7 +173,7 @@ namespace BCLog {
         std::atomic<bool> m_reopen_file{false};
 
         /** Send a string to the log output */
-        void LogPrintStr(const std::string& str, const std::string& logging_function, const SourceLocation& source_location);
+        void LogPrintStr(const std::string& str, const std::string& logging_function, const SourceLocation& source_location, bool skip_ratelimiting);
 
         /** Returns whether logs will be written to any output */
         bool Enabled() const
@@ -240,7 +240,7 @@ bool GetLogCategory(BCLog::LogFlags& flag, const std::string& str);
 // peer can fill up a user's disk with debug.log entries.
 
 template <typename... Args>
-static inline void LogPrintf_(const std::string& logging_function, const std::string& source_file, const int source_line, const char* fmt, const Args&... args)
+static inline void LogPrintf_(const std::string& logging_function, const std::string& source_file, const int source_line, bool skip_ratelimiting, const char* fmt, const Args&... args)
 {
     if (LogInstance().Enabled()) {
         std::string log_msg;
@@ -252,11 +252,18 @@ static inline void LogPrintf_(const std::string& logging_function, const std::st
         }
 
         const SourceLocation source_location{source_file, source_line};
-        LogInstance().LogPrintStr(log_msg, logging_function, source_location);
+        LogInstance().LogPrintStr(log_msg, logging_function, source_location, skip_ratelimiting);
     }
 }
 
-#define LogPrintf(...) LogPrintf_(__func__, __FILE__, __LINE__, __VA_ARGS__)
+// Unconditional logging. Uses basic rate limiting to mitigate disk filling attacks.
+#define LogPrintf(...) LogPrintf_(__func__, __FILE__, __LINE__, /* skip_ratelimiting */ false, __VA_ARGS__)
+
+// Unconditional logging WITHOUT rate limiting. Use only for log messages that
+// MUST NOT be rate limited no matter how often they are logged. That requirement
+// should be extremely rare, so please use with care. Prefer LogPrintf(...) if
+// possible.
+#define LogPrintfWithoutRateLimiting(...) LogPrintf_(__func__, __FILE__, __LINE__, /* skip_ratelimiting */ true, __VA_ARGS__)
 
 // Use a macro instead of a function for conditional logging to prevent
 // evaluating arguments when logging for the category is not enabled.
