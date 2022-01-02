@@ -267,10 +267,14 @@ static inline void LogPrintf_(const std::string& logging_function, const std::st
 
 // Use a macro instead of a function for conditional logging to prevent
 // evaluating arguments when logging for the category is not enabled.
+//
+// Note that conditional logging is performed WITHOUT rate limiting. Users
+// specifying -debug are assumed to be developers or power users who are aware
+// that -debug may cause excessive disk usage due to logging.
 #define LogPrint(category, ...)              \
     do {                                     \
         if (LogAcceptCategory((category))) { \
-            LogPrintf(__VA_ARGS__);          \
+            LogPrintfWithoutRateLimiting(__VA_ARGS__);          \
         }                                    \
     } while (0)
 
