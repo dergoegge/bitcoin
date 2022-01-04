@@ -71,6 +71,12 @@ void LogFromLocation(int location, std::string message)
     case 1:
         LogPrintf("%s\n", message);
         break;
+    case 2:
+        LogPrintfWithoutRateLimiting("%s\n", message);
+        break;
+    case 3:
+        LogPrint(BCLog::ALL, "%s\n", message);
+        break;
     default:
         BOOST_CHECK_MESSAGE(false, "Unkown log location");
     }
@@ -127,6 +133,20 @@ BOOST_AUTO_TEST_CASE(rate_limiting)
 
     BOOST_CHECK_THROW(
         LogFromLocationAndExpect(1, log_message, "Restarting logging"), std::runtime_error);
+
+    // Attempt to log 2 MiB to disk.
+    // The exempt locations 2 and 3 should be allowed to log without limit.
+    for (int i = 0; i < 2048; ++i) {
+        log_file_size = std::filesystem::file_size(LogInstance().m_file_path);
+        BOOST_CHECK_THROW(
+            LogFromLocationAndExpect(/* LogPrintfWithoutRateLimiting */ 2, log_message, "Excessive logging detected"), std::runtime_error);
+        BOOST_CHECK_MESSAGE(log_file_size < std::filesystem::file_size(LogInstance().m_file_path), "locaiton 2 should be exempt from rate limiting");
+
+        log_file_size = std::filesystem::file_size(LogInstance().m_file_path);
+        BOOST_CHECK_THROW(
+            LogFromLocationAndExpect(/* LogPrint(category, ...) */ 3, log_message, "Excessive logging detected"), std::runtime_error);
+        BOOST_CHECK_MESSAGE(log_file_size < std::filesystem::file_size(LogInstance().m_file_path), "locaiton 3 should be exempt from rate limiting");
+    }
 
     LogInstance().m_log_timestamps = prev_log_timestamps;
     LogInstance().m_log_sourcelocations = prev_log_sourcelocations;
