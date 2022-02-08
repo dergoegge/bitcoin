@@ -19,6 +19,7 @@ extern RecursiveMutex cs_main;
 
 class ArgsManager;
 class BlockValidationState;
+class CBlockHeader;
 class CBlock;
 class CBlockFileInfo;
 class CBlockUndo;
