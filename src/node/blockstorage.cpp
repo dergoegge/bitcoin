@@ -656,14 +656,15 @@ bool BlockManager::FindUndoPos(BlockValidationState& state, int nFile, FlatFileP
 static bool WriteBlockToDisk(const CBlock& block, FlatFilePos& pos, const CMessageHeader::MessageStartChars& messageStart)
 {
     // Open history file to append
-    CAutoFile fileout(OpenBlockFile(pos), SER_DISK, CLIENT_VERSION);
+    // TODO: Don't always serialize the inclusion proof.
+    CAutoFile fileout(OpenBlockFile(pos), SER_DISK, CLIENT_VERSION | SERIALIZE_BLOCK_INCLUSION_PROOF);
     if (fileout.IsNull()) {
         return error("WriteBlockToDisk: OpenBlockFile failed");
     }
 
-    // Write index header
-    unsigned int nSize = GetSerializeSize(block, fileout.GetVersion());
-    fileout << messageStart << nSize;
+    unsigned int proof_size = GetSerializeSize(block.m_inclusion_proof, fileout.GetVersion());
+    unsigned int nSize = GetSerializeSize(block, fileout.GetVersion() & ~SERIALIZE_BLOCK_INCLUSION_PROOF);
+    fileout << proof_size << messageStart << nSize;
 
     // Write block
     long fileOutPos = ftell(fileout.Get());
@@ -706,12 +707,14 @@ bool BlockManager::WriteUndoDataForBlock(const CBlockUndo& blockundo, BlockValid
     return true;
 }
 
-bool ReadBlockFromDisk(CBlock& block, const FlatFilePos& pos, const Consensus::Params& consensusParams)
+bool ReadBlockFromDisk(CBlock& block, const FlatFilePos& pos, const Consensus::Params& consensusParams, bool read_proof)
 {
     block.SetNull();
 
+    int ser_flags = CLIENT_VERSION;
+    if (read_proof) ser_flags |= SERIALIZE_BLOCK_INCLUSION_PROOF;
     // Open history file to read
-    CAutoFile filein(OpenBlockFile(pos, true), SER_DISK, CLIENT_VERSION);
+    CAutoFile filein(OpenBlockFile(pos, true), SER_DISK, ser_flags);
     if (filein.IsNull()) {
         return error("ReadBlockFromDisk: OpenBlockFile failed for %s", pos.ToString());
     }
@@ -736,11 +739,11 @@ bool ReadBlockFromDisk(CBlock& block, const FlatFilePos& pos, const Consensus::P
     return true;
 }
 
-bool ReadBlockFromDisk(CBlock& block, const CBlockIndex* pindex, const Consensus::Params& consensusParams)
+bool ReadBlockFromDisk(CBlock& block, const CBlockIndex* pindex, const Consensus::Params& consensusParams, bool read_proof)
 {
     const FlatFilePos block_pos{WITH_LOCK(cs_main, return pindex->GetBlockPos())};
 
-    if (!ReadBlockFromDisk(block, block_pos, consensusParams)) {
+    if (!ReadBlockFromDisk(block, block_pos, consensusParams, read_proof)) {
         return false;
     }
     if (block.GetHash() != pindex->GetBlockHash()) {
@@ -750,10 +753,15 @@ bool ReadBlockFromDisk(CBlock& block, const CBlockIndex* pindex, const Consensus
     return true;
 }
 
-bool ReadRawBlockFromDisk(std::vector<uint8_t>& block, const FlatFilePos& pos, const CMessageHeader::MessageStartChars& message_start)
+bool ReadRawBlockFromDisk(std::vector<uint8_t>& block, const FlatFilePos& pos, const CMessageHeader::MessageStartChars& message_start, bool read_proof)
 {
     FlatFilePos hpos = pos;
+
     hpos.nPos -= 8; // Seek back 8 bytes for meta header
+    if (read_proof) {
+        hpos.nPos -= 4;
+    }
+
     CAutoFile filein(OpenBlockFile(hpos, true), SER_DISK, CLIENT_VERSION);
     if (filein.IsNull()) {
         return error("%s: OpenBlockFile failed for %s", __func__, pos.ToString());
@@ -761,9 +769,11 @@ bool ReadRawBlockFromDisk(std::vector<uint8_t>& block, const FlatFilePos& pos, c
 
     try {
         CMessageHeader::MessageStartChars blk_start;
-        unsigned int blk_size;
+        unsigned int blk_size, proof_size;
 
+        if (read_proof) filein >> proof_size;
         filein >> blk_start >> blk_size;
+        if (read_proof) blk_size += proof_size;
 
         if (memcmp(blk_start, message_start, CMessageHeader::MESSAGE_START_SIZE)) {
             return error("%s: Block magic mismatch for %s: %s versus expected %s", __func__, pos.ToString(),
@@ -788,12 +798,12 @@ bool ReadRawBlockFromDisk(std::vector<uint8_t>& block, const FlatFilePos& pos, c
 /** Store block on disk. If dbp is non-nullptr, the file is known to already reside on disk */
 FlatFilePos BlockManager::SaveBlockToDisk(const CBlock& block, int nHeight, CChain& active_chain, const CChainParams& chainparams, const FlatFilePos* dbp)
 {
-    unsigned int nBlockSize = ::GetSerializeSize(block, CLIENT_VERSION);
+    unsigned int nBlockSize = ::GetSerializeSize(block, CLIENT_VERSION | SERIALIZE_BLOCK_INCLUSION_PROOF);
     FlatFilePos blockPos;
     if (dbp != nullptr) {
         blockPos = *dbp;
     }
-    if (!FindBlockPos(blockPos, nBlockSize + 8, nHeight, active_chain, block.GetBlockTime(), dbp != nullptr)) {
+    if (!FindBlockPos(blockPos, nBlockSize + 12, nHeight, active_chain, block.GetBlockTime(), dbp != nullptr)) {
         error("%s: FindBlockPos failed", __func__);
         return FlatFilePos();
     }
