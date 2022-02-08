@@ -9,6 +9,12 @@
 #include <random.h>
 #include <util/trace.h>
 #include <version.h>
+#include <core_memusage.h>
+
+size_t Coin::DynamicMemoryUsage() const
+{
+    return memusage::DynamicUsage(out.scriptPubKey);
+}
 
 bool CCoinsView::GetCoin(const COutPoint &outpoint, Coin &coin) const { return false; }
 uint256 CCoinsView::GetBestBlock() const { return uint256(); }
