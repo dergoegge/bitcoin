@@ -558,7 +558,6 @@ public:
           std::shared_ptr<Sock> sock,
           const CAddress& addrIn,
           uint64_t nKeyedNetGroupIn,
-          uint64_t nLocalHostNonceIn,
           const CAddress& addrBindIn,
           const std::string& addrNameIn,
           ConnectionType conn_type_in,
@@ -569,10 +568,6 @@ public:
 
     NodeId GetId() const {
         return id;
-    }
-
-    uint64_t GetLocalNonce() const {
-        return nLocalHostNonce;
     }
 
     int GetRefCount() const
@@ -631,7 +626,6 @@ public:
 
 private:
     const NodeId id;
-    const uint64_t nLocalHostNonce;
     std::atomic<int> m_greatest_common_version{INIT_PROTO_VERSION};
 
     const NetPermissionFlags m_permission_flags;
@@ -824,7 +818,6 @@ public:
     bool GetUseAddrmanOutgoing() const { return m_use_addrman_outgoing; };
     void SetNetworkActive(bool active);
     void OpenNetworkConnection(const CAddress& addrConnect, bool fCountFailure, CSemaphoreGrant* grantOutbound, const char* strDest, ConnectionType conn_type) EXCLUSIVE_LOCKS_REQUIRED(!m_unused_i2p_sessions_mutex);
-    bool CheckIncomingNonce(uint64_t nonce);
 
     bool ForNode(NodeId id, std::function<bool(CNode* pnode)> func);
 
