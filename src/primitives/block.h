@@ -9,6 +9,13 @@
 #include <primitives/transaction.h>
 #include <serialize.h>
 #include <uint256.h>
+#include <utreexoutils.h>
+
+/**
+ * A flag das is ORed with the protocol version to indicate that a block should
+ * be (un)serialized with a utxo set inclusion proof.
+ */
+static constexpr int SERIALIZE_BLOCK_INCLUSION_PROOF = 0x10000000;
 
 /** Nodes collect new transactions into a block, hash them into a hash tree,
  * and scan through nonce values to make the block's hash satisfy proof-of-work
@@ -65,6 +72,8 @@ public:
     // network and disk
     std::vector<CTransactionRef> vtx;
 
+    mutable UtxoSetInclusionProof m_inclusion_proof;
+
     // memory only
     mutable bool fChecked;
 
@@ -83,6 +92,9 @@ public:
     {
         READWRITEAS(CBlockHeader, obj);
         READWRITE(obj.vtx);
+        if (s.GetVersion() & SERIALIZE_BLOCK_INCLUSION_PROOF) {
+            READWRITE(obj.m_inclusion_proof);
+        }
     }
 
     void SetNull()
@@ -90,6 +102,7 @@ public:
         CBlockHeader::SetNull();
         vtx.clear();
         fChecked = false;
+        //TODO m_inclusion_proof.SetNull();
     }
 
     CBlockHeader GetBlockHeader() const
