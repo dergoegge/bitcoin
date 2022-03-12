@@ -500,6 +500,11 @@ public:
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_recent_confirmed_transactions_mutex, !m_most_recent_block_mutex);
     void UpdateLastBlockAnnounceTime(NodeId node, int64_t time_in_seconds) override;
 
+    bool IsManagingPeer(NodeId peer_id) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        return State(peer_id) != nullptr;
+    }
+
 private:
     /** Consider evicting an outbound peer based on the amount of time they've been behind our tip */
     void ConsiderEviction(CNode& pto, std::chrono::seconds time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
@@ -873,6 +878,184 @@ private:
      *            False if address relay is disallowed
      */
     bool SetupAddressRelay(const CNode& node, Peer& peer);
+};
+
+class MultiPeerManager : public PeerManager
+{
+private:
+    CConnman& m_connman;
+    AddrMan& m_addrman;
+    BanMan* m_banman;
+    ChainstateManager& m_chainman;
+    CTxMemPool& m_pool;
+    bool m_ignore_incoming_txs;
+
+    std::unordered_map<uint64_t, std::unique_ptr<PeerManagerImpl>> m_peer_managers;
+
+    PeerManagerImpl& GetPeermanForPeer(const CNode& node)
+    {
+        const uint64_t peerman_id{GetUniqueNetworkID(m_connman, node)};
+        if (auto it = m_peer_managers.find(peerman_id); it != m_peer_managers.end()) {
+            return *it->second;
+        }
+
+        std::unique_ptr<PeerManagerImpl> new_peerman{std::make_unique<PeerManagerImpl>(
+            m_connman, m_addrman,
+            m_banman, m_chainman,
+            m_pool, m_ignore_incoming_txs)};
+        return *m_peer_managers.emplace(peerman_id, std::move(new_peerman)).first->second;
+    }
+
+public:
+    MultiPeerManager(CConnman& connman, AddrMan& addrman,
+                     BanMan* banman, ChainstateManager& chainman,
+                     CTxMemPool& pool, bool ignore_incoming_txs)
+        : m_connman{connman}, m_addrman{addrman},
+          m_banman{banman}, m_chainman{chainman},
+          m_pool{pool}, m_ignore_incoming_txs{ignore_incoming_txs} {}
+
+    /** Overridden from CValidationInterface. */
+    void BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindexConnected) override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            peerman->BlockConnected(pblock, pindexConnected);
+        }
+    }
+
+    void BlockDisconnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* pindex) override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            peerman->BlockDisconnected(block, pindex);
+        }
+    }
+    void UpdatedBlockTip(const CBlockIndex* pindexNew, const CBlockIndex* pindexFork, bool fInitialDownload) override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            peerman->UpdatedBlockTip(pindexNew, pindexFork, fInitialDownload);
+        }
+    }
+    void BlockChecked(const CBlock& block, const BlockValidationState& state) override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            peerman->BlockChecked(block, state);
+        }
+    }
+    void NewPoWValidBlock(const CBlockIndex* pindex, const std::shared_ptr<const CBlock>& pblock) override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            peerman->NewPoWValidBlock(pindex, pblock);
+        }
+    }
+    void TransactionAddedToMempool(const CTransactionRef& tx, uint64_t mempool_sequence) override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            peerman->TransactionAddedToMempool(tx, mempool_sequence);
+        }
+    } 
+
+    /** Implement NetEventsInterface */
+    void InitializeNode(CNode* pnode) override
+    {
+        GetPeermanForPeer(*Assert(pnode)).InitializeNode(pnode);
+    }
+    void FinalizeNode(const CNode& node) override
+    {
+        GetPeermanForPeer(node).FinalizeNode(node);
+    }
+    bool ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt) override
+    {
+        return GetPeermanForPeer(*Assert(pfrom)).ProcessMessages(pfrom, interrupt);
+    }
+    bool SendMessages(CNode* pto) override EXCLUSIVE_LOCKS_REQUIRED(pto->cs_sendProcessing)
+    {
+        return GetPeermanForPeer(*Assert(pto)).SendMessages(pto);
+    }
+
+    /** Implement PeerManager */
+    void StartScheduledTasks(CScheduler& scheduler) override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            peerman->StartScheduledTasks(scheduler);
+        }
+    }
+    void CheckForStaleTipAndEvictPeers() override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            peerman->CheckForStaleTipAndEvictPeers();
+        }
+    }
+    std::optional<std::string> FetchBlock(NodeId peer_id, const CBlockIndex& block_index) override
+    {
+        if (fImporting) return "Importing...";
+        if (fReindex) return "Reindexing...";
+
+
+        for (auto const& [id, peerman] : m_peer_managers) {
+            bool manages_peer = false;
+            {
+                LOCK(cs_main);
+                manages_peer = peerman->IsManagingPeer(peer_id);
+            }
+            if (manages_peer) {
+                return peerman->FetchBlock(peer_id, block_index);
+            }
+        }
+
+        return "Peer does not exist";
+    }
+    bool GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats) const override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            if (peerman->GetNodeStateStats(nodeid, stats)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    bool IgnoresIncomingTxs() override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            if (peerman->IgnoresIncomingTxs()) {
+                return true;
+            }
+        }
+        return false;
+    }
+    void SendPings() override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            peerman->SendPings();
+        }
+    }
+    void RelayTransaction(const uint256& txid, const uint256& wtxid) override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            peerman->RelayTransaction(txid, wtxid);
+        }
+    }
+    void SetBestHeight(int height) override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            peerman->SetBestHeight(height);
+        }
+    }
+    void Misbehaving(const NodeId pnode, const int howmuch, const std::string& message) override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            peerman->Misbehaving(pnode, howmuch, message);
+        }
+    }
+    void ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
+                        const std::chrono::microseconds time_received, const std::atomic<bool>& interruptMsgProc) override
+    {
+        GetPeermanForPeer(pfrom).ProcessMessage(pfrom, msg_type, vRecv, time_received, interruptMsgProc);
+    }
+    void UpdateLastBlockAnnounceTime(NodeId node, int64_t time_in_seconds) override
+    {
+        for (auto const& [id, peerman] : m_peer_managers) {
+            peerman->UpdateLastBlockAnnounceTime(node, time_in_seconds);
+        }
+    }
 };
 
 const CNodeState* PeerManagerImpl::State(NodeId pnode) const EXCLUSIVE_LOCKS_REQUIRED(cs_main)
@@ -1593,7 +1776,7 @@ std::unique_ptr<PeerManager> PeerManager::make(CConnman& connman, AddrMan& addrm
                                                BanMan* banman, ChainstateManager& chainman,
                                                CTxMemPool& pool, bool ignore_incoming_txs)
 {
-    return std::make_unique<PeerManagerImpl>(connman, addrman, banman, chainman, pool, ignore_incoming_txs);
+    return std::make_unique<MultiPeerManager>(connman, addrman, banman, chainman, pool, ignore_incoming_txs);
 }
 
 PeerManagerImpl::PeerManagerImpl(CConnman& connman, AddrMan& addrman,
@@ -1695,6 +1878,8 @@ void PeerManagerImpl::NewPoWValidBlock(const CBlockIndex *pindex, const std::sha
 
     m_connman.ForEachNode([this, pindex, &lazy_ser, &hashBlock](CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
         AssertLockHeld(::cs_main);
+
+        if (!IsManagingPeer(pnode->GetId())) return;
 
         if (pnode->GetCommonVersion() < INVALID_CB_NO_BAN_VERSION || pnode->fDisconnect)
             return;
@@ -4357,7 +4542,10 @@ void PeerManagerImpl::EvictExtraOutboundPeers(std::chrono::seconds now)
     if (m_connman.GetExtraBlockRelayCount() > 0) {
         std::pair<NodeId, std::chrono::seconds> youngest_peer{-1, 0}, next_youngest_peer{-1, 0};
 
-        m_connman.ForEachNode([&](CNode* pnode) {
+        m_connman.ForEachNode([&](CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+            AssertLockHeld(::cs_main);
+
+            if (!IsManagingPeer(pnode->GetId())) return;
             if (!pnode->IsBlockOnlyConn() || pnode->fDisconnect) return;
             if (pnode->GetId() > youngest_peer.first) {
                 next_youngest_peer = youngest_peer;
@@ -4405,6 +4593,7 @@ void PeerManagerImpl::EvictExtraOutboundPeers(std::chrono::seconds now)
         m_connman.ForEachNode([&](CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
             AssertLockHeld(::cs_main);
 
+            if (!IsManagingPeer(pnode->GetId())) return;
             // Only consider outbound-full-relay peers that are not already
             // marked for disconnection
             if (!pnode->IsFullOutboundConn() || pnode->fDisconnect) return;
