@@ -11,11 +11,12 @@ the node should pretend that it does not have it to avoid fingerprinting.
 import time
 
 from test_framework.blocktools import (create_block, create_coinbase)
-from test_framework.messages import CInv, MSG_BLOCK
+from test_framework.messages import CInv, MSG_BLOCK, CBlockHeader, HeaderAndShortIDs
 from test_framework.p2p import (
     P2PInterface,
     msg_headers,
     msg_block,
+    msg_cmpctblock,
     msg_getdata,
     msg_getheaders,
     p2p_lock,
@@ -128,6 +129,40 @@ class P2PFingerprintTest(BitcoinTestFramework):
         self.send_header_request(block_hash, node0)
         node0.wait_for_header(hex(block_hash), timeout=3)
 
+        # Build fake headers
+        fake_stale_headers = []
+        prev_hash = stale_hash
+        for i in range(16):
+            fake_stale_header = CBlockHeader()
+            fake_stale_header.hashPrevBlock = prev_hash
+            fake_stale_headers.append(fake_stale_header)
+            prev_hash = fake_stale_header.rehash()
+
+        self.log.info("send fake header with stale block as previous block.")
+        with p2p_lock:
+            node0.last_message.pop("getheaders", None)
+        node0.send_message(msg_headers(fake_stale_headers[:1]))
+        self.log.info("getheaders should be sent in response instead of disconnecting,"
+                      " to obscure the fact that the stale block exists in the node's block index.")
+        node0.wait_for_getheaders()
+
+        self.log.info("send multiple fake headers with stale block as previous block.")
+        with p2p_lock:
+            node0.last_message.pop("getheaders", None)
+        node0.send_message(msg_headers(fake_stale_headers))
+        self.log.info("getheaders should be sent in response instead of disconnecting,"
+                      " to obscure the fact that the stale block exists in the node's block index.")
+        node0.wait_for_getheaders()
+
+        self.log.info("send fake header using a compact block")
+        header_and_shortids = HeaderAndShortIDs()
+        header_and_shortids.header = fake_stale_headers[0]
+        with p2p_lock:
+            node0.last_message.pop("getheaders", None)
+        node0.send_message(msg_cmpctblock(header_and_shortids.to_p2p()))
+        self.log.info("getheaders should be sent in response instead of disconnecting,"
+                      " to obscure the fact that the stale block exists in the node's block index.")
+        node0.wait_for_getheaders()
 
 if __name__ == '__main__':
     P2PFingerprintTest().main()
