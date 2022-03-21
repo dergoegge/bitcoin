@@ -1454,10 +1454,33 @@ bool PeerManagerImpl::MaybePunishNodeForTx(NodeId nodeid, const TxValidationStat
 bool PeerManagerImpl::BlockRequestAllowed(const CBlockIndex* pindex)
 {
     AssertLockHeld(cs_main);
-    if (m_chainman.ActiveChain().Contains(pindex)) return true;
-    return pindex->IsValid(BLOCK_VALID_SCRIPTS) && (pindexBestHeader != nullptr) &&
-           (pindexBestHeader->GetBlockTime() - pindex->GetBlockTime() < STALE_RELAY_AGE_LIMIT) &&
-           (GetBlockProofEquivalentTime(*pindexBestHeader, *pindex, *pindexBestHeader, m_chainparams.GetConsensus()) < STALE_RELAY_AGE_LIMIT);
+
+    if (!m_chainman.ActiveChain().Contains(pindex)) {
+        // This is a stale block and we restrict access to them under certain
+        // conditions to avoid leaking a fingerprint.
+
+        // We deny requests for blocks that have not been fully validated.
+        if (!pindex->IsValid(BLOCK_VALID_SCRIPTS)) return false;
+
+        // Both of the following ages have to be smaller than our
+        // STALE_RELAY_AGE_LIMIT, for us to allow the request for a
+        // block/header.
+        //
+        // 1. Age by timestamps included in the block headers.
+        // 2. Age by proof-of-work equivalent time.
+
+        // Without a best header (pindexBestHeader) we can not determine the
+        // age of a block.
+        if (pindexBestHeader == nullptr) return false;
+
+        int64_t block_age_by_time = pindexBestHeader->GetBlockTime() - pindex->GetBlockTime();
+        if (block_age_by_time >= STALE_RELAY_AGE_LIMIT) return false;
+
+        int64_t block_age_by_pow = GetBlockProofEquivalentTime(*pindexBestHeader, *pindex, *pindexBestHeader, m_chainparams.GetConsensus());
+        if (block_age_by_pow >= STALE_RELAY_AGE_LIMIT) return false;
+    }
+
+    return true;
 }
 
 std::optional<std::string> PeerManagerImpl::FetchBlock(NodeId peer_id, const CBlockIndex& block_index)
