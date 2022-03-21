@@ -614,7 +614,7 @@ private:
      * and in best equivalent proof of work) than the best header chain we know
      * about and we fully-validated them at some point.
      */
-    bool BlockRequestAllowed(const CBlockIndex* pindex) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+    bool BlockRequestAllowed(const CBlockIndex* pindex, bool allow_potentially_invalid_headers = false) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     bool AlreadyHaveBlock(const uint256& block_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     void ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& inv);
 
@@ -1451,7 +1451,7 @@ bool PeerManagerImpl::MaybePunishNodeForTx(NodeId nodeid, const TxValidationStat
     return false;
 }
 
-bool PeerManagerImpl::BlockRequestAllowed(const CBlockIndex* pindex)
+bool PeerManagerImpl::BlockRequestAllowed(const CBlockIndex* pindex, bool allow_potentially_invalid_headers)
 {
     AssertLockHeld(cs_main);
 
@@ -1459,8 +1459,10 @@ bool PeerManagerImpl::BlockRequestAllowed(const CBlockIndex* pindex)
         // This is a stale block and we restrict access to them under certain
         // conditions to avoid leaking a fingerprint.
 
-        // We deny requests for blocks that have not been fully validated.
-        if (!pindex->IsValid(BLOCK_VALID_SCRIPTS)) return false;
+        if (!allow_potentially_invalid_headers) {
+            // We deny requests for blocks that have not been fully validated.
+            if (!pindex->IsValid(BLOCK_VALID_SCRIPTS)) return false;
+        }
 
         // Both of the following ages have to be smaller than our
         // STALE_RELAY_AGE_LIMIT, for us to allow the request for a
