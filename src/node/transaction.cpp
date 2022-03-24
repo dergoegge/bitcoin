@@ -41,7 +41,6 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
 
     std::promise<void> promise;
     uint256 txid = tx->GetHash();
-    uint256 wtxid = tx->GetWitnessHash();
     bool callback_set = false;
 
     {
@@ -65,7 +64,7 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
             //
             // The mempool transaction may have the same or different witness (and
             // wtxid) as this transaction. Use the mempool's wtxid for reannouncement.
-            wtxid = mempool_tx->GetWitnessHash();
+            if (relay) node.peerman->RelayTransaction(txid, mempool_tx->GetWitnessHash());
         } else {
             // Transaction is not already in the mempool.
             if (max_tx_fee > 0) {
@@ -113,10 +112,6 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
         // Wait until Validation Interface clients have been notified of the
         // transaction entering the mempool.
         promise.get_future().wait();
-    }
-
-    if (relay) {
-        node.peerman->RelayTransaction(txid, wtxid);
     }
 
     return TransactionError::OK;
