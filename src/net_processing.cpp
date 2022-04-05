@@ -921,6 +921,8 @@ void PeerManagerImpl::MaybeSetPeerAsAnnouncingHeaderAndIDs(NodeId nodeid)
 {
     AssertLockHeld(cs_main);
 
+    if (true) return;
+
     // Never request high-bandwidth mode from peers if we're blocks-only. Our
     // mempool will not contain the transactions necessary to reconstruct the
     // compact block.
@@ -2849,7 +2851,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             // nodes)
             m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDHEADERS));
         }
-        if (pfrom.GetCommonVersion() >= SHORT_IDS_BLOCKS_VERSION) {
+/*        if (pfrom.GetCommonVersion() >= SHORT_IDS_BLOCKS_VERSION) {
             // Tell our peer we are willing to provide version 1 or 2 cmpctblocks
             // However, we do not request new block announcements using
             // cmpctblock messages.
@@ -2860,7 +2862,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion));
             nCMPCTBLOCKVersion = 1;
             m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion));
-        }
+        }*/
         pfrom.fSuccessfullyConnected = true;
         return;
     }
@@ -2871,7 +2873,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         return;
     }
 
-    if (msg_type == NetMsgType::SENDCMPCT) {
+    /*if (msg_type == NetMsgType::SENDCMPCT) {
         bool fAnnounceUsingCMPCTBLOCK = false;
         uint64_t nCMPCTBLOCKVersion = 0;
         vRecv >> fAnnounceUsingCMPCTBLOCK >> nCMPCTBLOCKVersion;
@@ -2893,7 +2895,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             }
         }
         return;
-    }
+    }*/
 
     // BIP339 defines feature negotiation of wtxidrelay, which must happen between
     // VERSION and VERACK to avoid relay problems from switching after a connection is up.
