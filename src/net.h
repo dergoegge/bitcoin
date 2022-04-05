@@ -477,6 +477,12 @@ public:
     std::atomic_bool fPauseRecv{false};
     std::atomic_bool fPauseSend{false};
 
+    bool IsUtreexoConn() const
+    {
+        return nLocalServices & ServiceFlags::NODE_UTREEXO &&
+               nServices & ServiceFlags::NODE_UTREEXO;
+    }
+
     bool IsOutboundOrBlockRelayConn() const {
         switch (m_conn_type) {
             case ConnectionType::OUTBOUND_FULL_RELAY:
