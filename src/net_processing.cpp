@@ -2006,28 +2006,84 @@ void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& 
 CTransactionRef PeerManagerImpl::FindTxForGetData(const CNode& peer, const GenTxid& gtxid, const std::chrono::seconds mempool_req, const std::chrono::seconds now)
 {
     auto txinfo = m_mempool.info(gtxid);
+
+    CTransactionRef tx = nullptr;
     if (txinfo.tx) {
         // If a TX could have been INVed in reply to a MEMPOOL request,
         // or is older than UNCONDITIONAL_RELAY_DELAY, permit the request
         // unconditionally.
         if ((mempool_req.count() && txinfo.m_time <= mempool_req) || txinfo.m_time <= now - UNCONDITIONAL_RELAY_DELAY) {
-            return std::move(txinfo.tx);
+            tx = std::move(txinfo.tx);
         }
     }
 
-    {
+    if (!tx) {
         LOCK(cs_main);
         // Otherwise, the transaction must have been announced recently.
         if (State(peer.GetId())->m_recently_announced_invs.contains(gtxid.GetHash())) {
             // If it was, it can be relayed from either the mempool...
-            if (txinfo.tx) return std::move(txinfo.tx);
-            // ... or the relay pool.
-            auto mi = mapRelay.find(gtxid.GetHash());
-            if (mi != mapRelay.end()) return mi->second;
+            if (txinfo.tx) {
+                tx = std::move(txinfo.tx);
+            } else if (mapRelay.find(gtxid.GetHash()) != mapRelay.end()) {
+                // ... or the relay pool.
+                tx = mapRelay.at(gtxid.GetHash());
+            }
         }
     }
 
-    return {};
+    if ((gArgs.GetBoolArg("-compact", false) || gArgs.GetBoolArg("-blockproofindex", false)) &&
+        peer.nServices & ServiceFlags::NODE_UTREEXO) {
+        LOCK(cs_main);
+
+        CCoinsViewCache& coins_view = m_chainman.ActiveChainstate().CoinsTip();
+
+        std::vector<COutPoint> coins_to_uncache;
+        std::vector<UtreexoLeafData> leaves;
+
+        for (const CTxIn& in : tx->vin) {
+            if (!coins_view.HaveCoinInCache(in.prevout)) {
+                coins_to_uncache.push_back(in.prevout);
+            }
+
+            const Coin& coin = coins_view.AccessCoin(in.prevout);
+            // IsSpent() here does not actually mean that the coin was spent.
+            // It just means it does not exist in coins_view.
+            if (!coin.IsSpent()) {
+                const CBlockIndex* index = m_chainman.ActiveChain()[coin.nHeight];
+                assert(index);
+
+                leaves.push_back(UtreexoLeafData(in.prevout, index->GetBlockHash(), coin));
+            }
+        }
+
+        for (const COutPoint& outpoint : coins_to_uncache) {
+            coins_view.Uncache(outpoint);
+        }
+
+        CMutableTransaction mtx(*tx);
+        if (gArgs.GetBoolArg("-blockproofindex", false)) {
+            if (!g_blockproofindex->ComputeProofForLeaves(m_chainman.ActiveTip(), std::move(leaves),
+                                                          mtx.m_inclusion_proof)) {
+                LogPrintf("oof bridge\n");
+                return {};
+            }
+
+        } else if (gArgs.GetBoolArg("-compact", false)) {
+            utreexo::BatchProof proof;
+            std::vector<utreexo::Hash> target_hashes;
+            ComputeLeafHashes(leaves, target_hashes);
+            if (!m_chainman.ActiveChainstate().m_coin_accumulator->Prove(proof, target_hashes)) {
+                LogPrintf("oof csn\n");
+                return {};
+            }
+
+            mtx.m_inclusion_proof = UtxoSetInclusionProof(std::move(leaves), std::move(proof));
+        }
+
+        tx = MakeTransactionRef(mtx);
+    }
+
+    return tx;
 }
 
 void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic<bool>& interruptMsgProc)
@@ -2062,6 +2118,9 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
         if (tx) {
             // WTX and WITNESS_TX imply we serialize with witness
             int nSendFlags = (inv.IsMsgTx() ? SERIALIZE_TRANSACTION_NO_WITNESS : 0);
+            if (pfrom.IsUtreexoConn()) {
+                nSendFlags |= SERIALIZE_TRANSACTION_INCLUSION_PROOF;
+            }
             m_connman.PushMessage(&pfrom, msgMaker.Make(nSendFlags, NetMsgType::TX, *tx));
             m_mempool.RemoveUnbroadcastTx(tx->GetHash());
             // As we're going to send tx, make sure its unconfirmed parents are made requestable.
@@ -3334,8 +3393,18 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // is not considered a protocol violation, so don't punish the peer.
         if (m_chainman.ActiveChainstate().IsInitialBlockDownload()) return;
 
+        int stream_version = vRecv.GetVersion();
+        bool unser_proof = !gArgs.GetBoolArg("-blockproofindex", false) && pfrom.IsUtreexoConn();
+
+        if (unser_proof) {
+            // We are a Utreexo enabled node and so is the remote peer.
+            // We expect the inclusion proof to be appended to the transaction.
+            stream_version |= SERIALIZE_TRANSACTION_INCLUSION_PROOF;
+        }
+
+        OverrideStream<CDataStream> s(&vRecv, vRecv.GetType(), stream_version);
         CTransactionRef ptx;
-        vRecv >> ptx;
+        s >> ptx;
         const CTransaction& tx = *ptx;
 
         const uint256& txid = ptx->GetHash();
@@ -3403,6 +3472,10 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 pfrom.GetId(),
                 tx.GetHash().ToString(),
                 m_mempool.size(), m_mempool.DynamicMemoryUsage() / 1000);
+
+            if (pfrom.IsUtreexoConn()) {
+                LogPrint(BCLog::MEMPOOL, "Number of cached leaves: %u\n", m_chainman.ActiveChainstate().m_coin_accumulator->NumCachedLeaves());
+            }
 
             for (const CTransactionRef& removedTx : result.m_replaced_transactions.value()) {
                 AddToCompactExtraTransactions(removedTx);

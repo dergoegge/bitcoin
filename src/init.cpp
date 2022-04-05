@@ -1032,9 +1032,6 @@ bool AppInitParameterInteraction(const ArgsManager& args)
 
     if (args.GetBoolArg("-blockproofindex", false) ||
         args.GetBoolArg("-compact", false)) {
-        if (!args.GetBoolArg("-blocksonly", false)) {
-            return InitError(Untranslated("Compact state and bridge nodes are limited to blocksonly. (this is only temporary until mempool handling is implemented)"));
-        }
         nLocalServices = ServiceFlags(nLocalServices | NODE_UTREEXO);
     }
 

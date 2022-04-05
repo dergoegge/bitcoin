@@ -737,6 +737,52 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     LockPoints lp;
     m_view.SetBackend(m_viewmempool);
 
+    if (gArgs.GetBoolArg("-compact", false)) {
+        assert(m_active_chainstate.m_coin_accumulator);
+
+        CMutableTransaction mtx(tx);
+
+        // Skip inputs from the mempool as those can't have an inclusion proof.
+        std::vector<int> in_skip;
+        int i = 0;
+        for (const CTxIn& in : mtx.vin) {
+            if (m_pool.get(in.prevout.hash)) {
+                in_skip.push_back(i);
+            }
+            ++i;
+        }
+
+        if (in_skip.size() + mtx.m_inclusion_proof.GetLeaves().size() != mtx.vin.size()) {
+            // This is a orphan or invlaid tx.
+            return state.Invalid(TxValidationResult::TX_MISSING_INPUTS, "utreexo-missing-inputs");
+        }
+
+        if (!mtx.m_inclusion_proof.ReconstructLeaves(m_active_chainstate.m_chain, {ptx}, in_skip)) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "not-enough-coins");
+        }
+
+        std::vector<utreexo::Hash> target_hashes;
+        ComputeLeafHashes(mtx.m_inclusion_proof.GetLeaves(), target_hashes);
+
+        std::vector<utreexo::Hash> sorted_hashes;
+        SortTargetHashes(mtx.m_inclusion_proof.GetProof(), target_hashes, sorted_hashes);
+
+        // Verify the UTXO inclusion proof.
+        if (!m_active_chainstate.m_coin_accumulator->Verify(mtx.m_inclusion_proof.GetProof(), sorted_hashes)) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-inclusion-proof");
+        }
+
+        // TODO: prune computed leaves from the pollard.
+
+        // TODO: these coins should be removed if the tx turns out to be invalid.
+        mtx.m_inclusion_proof.FillCoinsView(m_active_chainstate.CoinsTip());
+
+        // We will fetch the proof from the accumualtor if we relay the tx, so
+        // there is no need to keep the current proof in memory.
+        // TODO: get rid of the const cast
+        const_cast<utreexo::BatchProof&>(tx.m_inclusion_proof.GetProof()).SetNull();
+    }
+
     const CCoinsViewCache& coins_cache = m_active_chainstate.CoinsTip();
     // do all inputs exist?
     for (const CTxIn& txin : tx.vin) {
