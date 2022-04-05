@@ -11,6 +11,7 @@
 #include <script/script.h>
 #include <serialize.h>
 #include <uint256.h>
+#include <utreexoutils.h>
 
 #include <tuple>
 
@@ -21,6 +22,12 @@
  * or with `ADDRV2_FORMAT`.
  */
 static const int SERIALIZE_TRANSACTION_NO_WITNESS = 0x40000000;
+
+/**
+ * A flag das is ORed with the protocol version to indicate that a transaction
+ * should be (un)serialized with a utxo set inclusion proof.
+ */
+static constexpr int SERIALIZE_TRANSACTION_INCLUSION_PROOF = 0x80000000;
 
 /** An outpoint - a combination of a transaction hash and an index n into its vout */
 class COutPoint
@@ -241,6 +248,10 @@ inline void UnserializeTransaction(TxType& tx, Stream& s) {
         throw std::ios_base::failure("Unknown transaction optional data");
     }
     s >> tx.nLockTime;
+
+    if (s.GetVersion() & SERIALIZE_TRANSACTION_INCLUSION_PROOF) {
+        s >> tx.m_inclusion_proof;
+    }
 }
 
 template<typename Stream, typename TxType>
@@ -270,6 +281,10 @@ inline void SerializeTransaction(const TxType& tx, Stream& s) {
         }
     }
     s << tx.nLockTime;
+
+    if (s.GetVersion() & SERIALIZE_TRANSACTION_INCLUSION_PROOF) {
+        s << tx.m_inclusion_proof;
+    }
 }
 
 
@@ -291,6 +306,7 @@ public:
     const std::vector<CTxOut> vout;
     const int32_t nVersion;
     const uint32_t nLockTime;
+    const UtxoSetInclusionProof m_inclusion_proof;
 
 private:
     /** Memory only. */
@@ -367,6 +383,7 @@ struct CMutableTransaction
     std::vector<CTxOut> vout;
     int32_t nVersion;
     uint32_t nLockTime;
+    UtxoSetInclusionProof m_inclusion_proof;
 
     CMutableTransaction();
     explicit CMutableTransaction(const CTransaction& tx);
