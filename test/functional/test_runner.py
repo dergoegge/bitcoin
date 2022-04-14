@@ -290,6 +290,7 @@ BASE_SCRIPTS = [
     'wallet_taproot.py',
     'wallet_inactive_hdchains.py',
     'p2p_fingerprint.py',
+    'p2p_large_reorg.py',
     'feature_uacomment.py',
     'feature_init.py',
     'wallet_coinbase_category.py --legacy-wallet',
