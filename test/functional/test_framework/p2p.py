@@ -694,11 +694,12 @@ class P2PDataStore(P2PInterface):
         if response is not None:
             self.send_message(response)
 
-    def send_blocks_and_test(self, blocks, node, *, success=True, force_send=False, reject_reason=None, expect_disconnect=False, timeout=60):
+    def send_blocks_and_test(self, blocks, node, *, success=True, force_send=False, announce_tip=False, reject_reason=None, expect_disconnect=False, timeout=60):
         """Send blocks to test node and test whether the tip advances.
 
          - add all blocks to our block_store
-         - send a headers message for the final block
+         - if announce_tip is True: send a headers message for the final block
+         - if announce_tip is False: send the maximum amount of headers (MAX_HEADERS_RESULTS) for the blocks
          - the on_getheaders handler will ensure that any getheaders are responded to
          - if force_send is False: wait for getdata for each of the blocks. The on_getdata handler will
            ensure that any getdata messages are responded to. Otherwise send the full block unsolicited.
@@ -717,7 +718,11 @@ class P2PDataStore(P2PInterface):
                 for b in blocks:
                     self.send_message(msg_block(block=b))
             else:
-                self.send_message(msg_headers([CBlockHeader(block) for block in blocks]))
+                headers = [CBlockHeader(block) for block in blocks[:MAX_HEADERS_RESULTS]]
+                if announce_tip:
+                    headers = [CBlockHeader(blocks[-1])]
+
+                self.send_message(msg_headers(headers))
                 self.wait_until(
                     lambda: blocks[-1].sha256 in self.getdata_requests,
                     timeout=timeout,
