@@ -5225,6 +5225,32 @@ ChainstateManager::~ChainstateManager()
     }
 }
 
+bool ChainstateManager::IsBlockInMainOrBestChain(const uint256& blockhash) const
+{
+    AssertLockHeld(cs_main);
+    const CBlockIndex* index{m_blockman.LookupBlockIndex(blockhash)};
+    if (!index) return false;
+
+    if (m_best_header->GetAncestor(index->nHeight) == index || m_best_header == index) return true;
+    if (ActiveChain().Contains(index)) return true;
+
+    return false;
+}
+
+bool ChainstateManager::IsBlockInChainTipSet(const uint256& blockhash, const std::set<uint256>& chain_tips) const
+{
+    AssertLockHeld(cs_main);
+
+    const CBlockIndex* index{m_blockman.LookupBlockIndex(blockhash)};
+    if (!index) return false;
+
+    // `index` is in the chain tip set if one the tips has `index` as an ancestor.
+    return std::any_of(chain_tips.cbegin(), chain_tips.cend(), [&index, &m_blockman = m_blockman](const uint256& tip_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
+        const CBlockIndex& tip_index{*Assume(m_blockman.LookupBlockIndex(tip_hash))};
+        return index == &tip_index || tip_index.GetAncestor(index->nHeight) == index;
+    });
+}
+
 void ChainstateManager::UpdateChainTipSet(const uint256& new_blockhash, std::set<uint256>& chain_tips) const
 {
     AssertLockHeld(cs_main);
