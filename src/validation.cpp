@@ -5224,3 +5224,34 @@ ChainstateManager::~ChainstateManager()
         i.clear();
     }
 }
+
+void ChainstateManager::UpdateChainTipSet(const uint256& new_blockhash, std::set<uint256>& chain_tips) const
+{
+    AssertLockHeld(cs_main);
+
+    const CBlockIndex* new_index{m_blockman.LookupBlockIndex(new_blockhash)};
+    if (!new_index) return;
+
+    const auto& last_tip_it = std::find_if(chain_tips.cbegin(), chain_tips.cend(), [&new_index, &m_blockman = m_blockman](const uint256& tip_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
+        const CBlockIndex& tip_index{*Assume(m_blockman.LookupBlockIndex(tip_hash))};
+        return new_index->GetAncestor(tip_index.nHeight) == &tip_index;
+    });
+    if (last_tip_it != chain_tips.cend()) {
+        // `new_index` is a new tip of a known chain because it had one of the
+        // tips in the chain tip set as its ancestor. We replace the previous
+        // tip with `new_index`.
+        chain_tips.erase(*last_tip_it);
+        chain_tips.insert(new_blockhash);
+        return;
+    }
+
+    const auto& tip_it = std::find_if(chain_tips.cbegin(), chain_tips.cend(), [&new_index, &m_blockman = m_blockman](const uint256& tip_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
+        const CBlockIndex& tip_index{*Assume(m_blockman.LookupBlockIndex(tip_hash))};
+        return tip_index.GetAncestor(new_index->nHeight) == new_index;
+    });
+    if (tip_it == chain_tips.cend()) {
+        // `new_index` is a new tip as none of the tips in the chain tip set
+        // had `new_index` as an ancestor.
+        chain_tips.insert(new_blockhash);
+    }
+}

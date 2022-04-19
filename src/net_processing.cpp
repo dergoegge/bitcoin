@@ -615,6 +615,17 @@ private:
     /** Number of preferable block download peers. */
     int m_num_preferred_download_peers GUARDED_BY(cs_main){0};
 
+    /**
+     * Map of seen chain tip sets keyed by unique network ID.
+     *
+     * The size of each chain tip set is limited to the number of chain tips in
+     * our global block index.
+     */
+    std::map<uint64_t, std::set<uint256>> m_chain_tip_sets GUARDED_BY(cs_main);
+
+    /** Get the chain tip set for pfrom's network. */
+    std::set<uint256>& GetChainTipSetForPeer(CNode& pfrom) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
     bool AlreadyHaveTx(const GenTxid& gtxid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     /**
@@ -1754,6 +1765,11 @@ void PeerManagerImpl::BlockChecked(const CBlock& block, const BlockValidationSta
 // Messages
 //
 
+std::set<uint256>& PeerManagerImpl::GetChainTipSetForPeer(CNode& pfrom)
+{
+    // Insert an empty set or return the existing one.
+    return m_chain_tip_sets.emplace(GetUniqueNetworkID(m_connman, pfrom), std::set<uint256>()).first->second;
+}
 
 bool PeerManagerImpl::AlreadyHaveTx(const GenTxid& gtxid)
 {
@@ -2230,6 +2246,8 @@ void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, const Peer& peer,
 
         assert(pindexLast);
         UpdateBlockAvailability(pfrom.GetId(), pindexLast->GetBlockHash());
+        m_chainman.UpdateChainTipSet(pindexLast->GetBlockHash(), GetChainTipSetForPeer(pfrom));
+
 
         // From here, pindexBestKnownBlock should be guaranteed to be non-null,
         // because it is set in UpdateBlockAvailability. Some nullptr checks
@@ -2590,7 +2608,12 @@ void PeerManagerImpl::ProcessGetCFCheckPt(CNode& peer, CDataStream& vRecv)
 void PeerManagerImpl::ProcessBlock(CNode& node, const std::shared_ptr<const CBlock>& block, bool force_processing)
 {
     bool new_block{false};
-    m_chainman.ProcessNewBlock(block, force_processing, &new_block);
+    if (m_chainman.ProcessNewBlock(block, force_processing, &new_block)) {
+        const PeerRef peer{Assume(GetPeerRef(node.GetId()))};
+        LOCK(cs_main);
+        m_chainman.UpdateChainTipSet(block->GetHash(), GetChainTipSetForPeer(node));
+    }
+
     if (new_block) {
         node.m_last_block_time = GetTime<std::chrono::seconds>();
     } else {
@@ -3596,6 +3619,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // If AcceptBlockHeader returned true, it set pindex
         assert(pindex);
         UpdateBlockAvailability(pfrom.GetId(), pindex->GetBlockHash());
+        m_chainman.UpdateChainTipSet(pindex->GetBlockHash(), GetChainTipSetForPeer(pfrom));
 
         CNodeState *nodestate = State(pfrom.GetId());
 

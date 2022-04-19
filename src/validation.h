@@ -1007,6 +1007,13 @@ public:
     /** Produce the necessary coinbase commitment for a block (modifies the hash, don't call for mined blocks). */
     std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBlockIndex* pindexPrev) const;
 
+    /**
+     * Update a chain tip set for a given new block hash by replacing an
+     * existing tip if it is an ancestor of the new block or by adding a new
+     * tip if none of the existing chain tips were replaced.
+     */
+    void UpdateChainTipSet(const uint256& new_blockhash, std::set<uint256>& chain_tips) const EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
     ~ChainstateManager();
 };
 
