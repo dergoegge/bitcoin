@@ -324,6 +324,18 @@ struct Peer {
     /** Work queue of items requested by this peer **/
     std::deque<CInv> m_getdata_requests GUARDED_BY(m_getdata_requests_mutex);
 
+    struct CompareCBlockIndexRef {
+        bool operator()(const CBlockIndex& a, const CBlockIndex& b) const { return &a < &b; }
+    };
+    /** Protects m_known_chain_tips */
+    Mutex m_known_chain_tips_mutex;
+    /**
+     * Chain tips that this peer knows we have because they send them to us.
+     * Limited to the number of chain tips in our global block index.
+     */
+    std::set<std::reference_wrapper<const CBlockIndex>, CompareCBlockIndexRef>
+        m_known_chain_tips GUARDED_BY(m_known_chain_tips_mutex);
+
     explicit Peer(NodeId id, bool tx_relay)
         : m_id(id)
         , m_tx_relay(tx_relay ? std::make_unique<TxRelay>() : nullptr)
@@ -639,6 +651,9 @@ private:
     /** Update tracking information about which blocks a peer is assumed to have. */
     void UpdateBlockAvailability(NodeId nodeid, const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     bool CanDirectFetch() EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+    void UpdateKnownChainTips(NodeId node_id, const CBlockIndex& new_index);
+    bool IsIndexOnKnownChain(NodeId node_id, const CBlockIndex& index);
 
     /**
      * To prevent fingerprinting attacks, only send blocks/headers outside of
@@ -1066,6 +1081,54 @@ void PeerManagerImpl::UpdateBlockAvailability(NodeId nodeid, const uint256 &hash
         // An unknown block was announced; just assume that the latest one is the best one.
         state->hashLastUnknownBlock = hash;
     }
+}
+
+void PeerManagerImpl::UpdateKnownChainTips(NodeId node_id, const CBlockIndex& new_index)
+{
+    PeerRef peer = GetPeerRef(node_id);
+    if (!peer) return;
+
+    LOCK(peer->m_known_chain_tips_mutex);
+
+    const auto& last_tip_it = std::find_if(peer->m_known_chain_tips.begin(), peer->m_known_chain_tips.end(), [&new_index](const CBlockIndex& tip) {
+        return new_index.GetAncestor(tip.nHeight) == &tip;
+    });
+    if (last_tip_it != peer->m_known_chain_tips.end()) {
+        // `new_index` is a new tip of a known chain because it had one of the
+        // known tips as its ancestor. We replace the previous tip with
+        // `new_index`.
+        LogPrint(BCLog::NET, "Newer tip received from peer=%d: prev: %s, now: %s\n", node_id,
+                 last_tip_it->get().GetBlockHash().ToString(), new_index.GetBlockHash().ToString());
+        peer->m_known_chain_tips.erase(last_tip_it);
+        peer->m_known_chain_tips.insert(new_index);
+    }
+
+    const auto& tip_it = std::find_if(peer->m_known_chain_tips.begin(), peer->m_known_chain_tips.end(), [&new_index](const CBlockIndex& tip) {
+        return tip.GetAncestor(new_index.nHeight) == &new_index;
+    });
+    if (tip_it == peer->m_known_chain_tips.end()) {
+        // `new_index` is a new tip as none of the known tips had `new_index`
+        // as an ancestor.
+        LogPrint(BCLog::NET, "New tip received from peer=%d: %s\n", node_id,
+                 new_index.GetBlockHash().ToString());
+        peer->m_known_chain_tips.insert(new_index);
+    }
+}
+
+bool PeerManagerImpl::IsIndexOnKnownChain(NodeId node_id, const CBlockIndex& index)
+{
+    PeerRef peer = GetPeerRef(node_id);
+    if (!peer) return false;
+
+    LOCK(peer->m_known_chain_tips_mutex);
+
+    if (m_chainman.m_best_header->GetAncestor(index.nHeight) == &index || m_chainman.m_best_header == &index) return true;
+    if (m_chainman.ActiveChain().Contains(&index)) return true;
+
+    // `index` is on a chain known by this peer if it is an ancestor of one of the known tips.
+    return std::any_of(peer->m_known_chain_tips.begin(), peer->m_known_chain_tips.end(), [&index](const CBlockIndex& tip) {
+        return &index == &tip || tip.GetAncestor(index.nHeight) == &index;
+    });
 }
 
 void PeerManagerImpl::FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vector<const CBlockIndex*>& vBlocks, NodeId& nodeStaller)
@@ -2224,6 +2287,7 @@ void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, const Peer& peer,
 
         assert(pindexLast);
         UpdateBlockAvailability(pfrom.GetId(), pindexLast->GetBlockHash());
+        UpdateKnownChainTips(pfrom.GetId(), *pindexLast);
 
         // From here, pindexBestKnownBlock should be guaranteed to be non-null,
         // because it is set in UpdateBlockAvailability. Some nullptr checks
@@ -2584,7 +2648,11 @@ void PeerManagerImpl::ProcessGetCFCheckPt(CNode& peer, CDataStream& vRecv)
 void PeerManagerImpl::ProcessBlock(CNode& node, const std::shared_ptr<const CBlock>& block, bool force_processing)
 {
     bool new_block{false};
-    m_chainman.ProcessNewBlock(m_chainparams, block, force_processing, &new_block);
+    if (m_chainman.ProcessNewBlock(m_chainparams, block, force_processing, &new_block)) {
+        LOCK(cs_main);
+        UpdateKnownChainTips(node.GetId(), *Assume(m_chainman.m_blockman.LookupBlockIndex(block->GetHash())));
+    }
+
     if (new_block) {
         node.m_last_block_time = GetTime<std::chrono::seconds>();
     } else {
@@ -3588,6 +3656,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // If AcceptBlockHeader returned true, it set pindex
         assert(pindex);
         UpdateBlockAvailability(pfrom.GetId(), pindex->GetBlockHash());
+        UpdateKnownChainTips(pfrom.GetId(), *pindex);
 
         CNodeState *nodestate = State(pfrom.GetId());
 
