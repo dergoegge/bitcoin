@@ -5231,3 +5231,51 @@ void ChainstateManager::MaybeRebalanceCaches()
         }
     }
 }
+
+bool ChainTipSet::Contains(const uint256& blockhash) const
+{
+    AssertLockHeld(cs_main);
+    LOCK(m_mutex);
+
+    const CBlockIndex* index{m_chainman.m_blockman.LookupBlockIndex(blockhash)};
+    if (!index) return false;
+
+    if (m_chainman.m_best_header->GetAncestor(index->nHeight) == index || m_chainman.m_best_header == index) return true;
+    if (m_chainman.ActiveChain().Contains(index)) return true;
+
+    // `index` is in the chain tip set if one the tips has `index` as an ancestor.
+    return std::any_of(m_tips.cbegin(), m_tips.cend(), [&index, &m_blockman = m_chainman.m_blockman](const uint256& tip_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
+        const CBlockIndex& tip_index{*Assume(m_blockman.LookupBlockIndex(tip_hash))};
+        return index == &tip_index || tip_index.GetAncestor(index->nHeight) == index;
+    });
+}
+
+void ChainTipSet::Update(const uint256& new_blockhash)
+{
+    AssertLockHeld(cs_main);
+    LOCK(m_mutex);
+
+    const CBlockIndex& new_index{*Assume(m_chainman.m_blockman.LookupBlockIndex(new_blockhash))};
+
+    const auto& last_tip_it = std::find_if(m_tips.cbegin(), m_tips.cend(), [&new_index, &m_blockman = m_chainman.m_blockman](const uint256& tip_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
+        const CBlockIndex& tip_index{*Assume(m_blockman.LookupBlockIndex(tip_hash))};
+        return new_index.GetAncestor(tip_index.nHeight) == &tip_index;
+    });
+    if (last_tip_it != m_tips.cend()) {
+        // `new_index` is a new tip of a known chain because it had one of the
+        // tips in the chain tip set as its ancestor. We replace the previous
+        // tip with `new_index`.
+        m_tips.erase(*last_tip_it);
+        m_tips.insert(new_blockhash);
+    }
+
+    const auto& tip_it = std::find_if(m_tips.cbegin(), m_tips.cend(), [&new_index, &m_blockman = m_chainman.m_blockman](const uint256& tip_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
+        const CBlockIndex& tip_index{*Assume(m_blockman.LookupBlockIndex(tip_hash))};
+        return tip_index.GetAncestor(new_index.nHeight) == &new_index;
+    });
+    if (tip_it == m_tips.cend()) {
+        // `new_index` is a new tip as none of the tips in the chain tip set
+        // had `new_index` as an ancestor.
+        m_tips.insert(new_blockhash);
+    }
+}

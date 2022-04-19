@@ -74,6 +74,8 @@ static constexpr auto EXTRA_PEER_CHECK_INTERVAL{45s};
 static constexpr auto MINIMUM_CONNECT_TIME{30s};
 /** SHA256("main address relay")[0:8] */
 static constexpr uint64_t RANDOMIZER_ID_ADDRESS_RELAY = 0x3cac0035b5866b90ULL;
+// TODO: sha this instead of deadbeef
+static constexpr uint64_t RANDOMIZER_ID_CHAIN_TIP_SETS = 0xdeadbeef;
 /// Age after which a stale block will no longer be served if requested as
 /// protection against fingerprinting. Set to one month, denominated in seconds.
 static constexpr int STALE_RELAY_AGE_LIMIT = 30 * 24 * 60 * 60;
@@ -500,6 +502,10 @@ private:
 
     /** Number of outbound peers with m_chain_sync.m_protect. */
     int m_outbound_peers_with_protect_from_disconnect GUARDED_BY(cs_main) = 0;
+
+    std::map<uint64_t, ChainTipSet> m_chain_tip_sets GUARDED_BY(cs_main);
+
+    ChainTipSet& GetChainTipSetForPeer(CNode& pfrom) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     bool AlreadyHaveTx(const GenTxid& gtxid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
@@ -1752,6 +1758,17 @@ void PeerManagerImpl::BlockChecked(const CBlock& block, const BlockValidationSta
 // Messages
 //
 
+ChainTipSet& PeerManagerImpl::GetChainTipSetForPeer(CNode& pfrom)
+{
+    auto local_socket_bytes = pfrom.addrBind.GetAddrBytes();
+    uint64_t chain_tip_set_id{m_connman.GetDeterministicRandomizer(RANDOMIZER_ID_CHAIN_TIP_SETS)
+                                  .Write(pfrom.ConnectedThroughNetwork())
+                                  .Write(local_socket_bytes.data(), local_socket_bytes.size())
+                                  .Write(pfrom.IsInboundConn() ? pfrom.addrBind.GetPort() : 0)
+                                  .Finalize()};
+    // Insert an empty set or return the existing one.
+    return m_chain_tip_sets.try_emplace(chain_tip_set_id, m_chainman).first->second;
+}
 
 bool PeerManagerImpl::AlreadyHaveTx(const GenTxid& gtxid)
 {
@@ -2224,6 +2241,7 @@ void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, const Peer& peer,
 
         assert(pindexLast);
         UpdateBlockAvailability(pfrom.GetId(), pindexLast->GetBlockHash());
+        GetChainTipSetForPeer(pfrom).Update(pindexLast->GetBlockHash());
 
         // From here, pindexBestKnownBlock should be guaranteed to be non-null,
         // because it is set in UpdateBlockAvailability. Some nullptr checks
@@ -2584,7 +2602,12 @@ void PeerManagerImpl::ProcessGetCFCheckPt(CNode& peer, CDataStream& vRecv)
 void PeerManagerImpl::ProcessBlock(CNode& node, const std::shared_ptr<const CBlock>& block, bool force_processing)
 {
     bool new_block{false};
-    m_chainman.ProcessNewBlock(m_chainparams, block, force_processing, &new_block);
+    if (m_chainman.ProcessNewBlock(m_chainparams, block, force_processing, &new_block)) {
+        const PeerRef peer{Assume(GetPeerRef(node.GetId()))};
+        LOCK(cs_main);
+        GetChainTipSetForPeer(node).Update(block->GetHash());
+    }
+
     if (new_block) {
         node.m_last_block_time = GetTime<std::chrono::seconds>();
     } else {
@@ -3588,6 +3611,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // If AcceptBlockHeader returned true, it set pindex
         assert(pindex);
         UpdateBlockAvailability(pfrom.GetId(), pindex->GetBlockHash());
+        GetChainTipSetForPeer(pfrom).Update(pindex->GetBlockHash());
 
         CNodeState *nodestate = State(pfrom.GetId());
 
