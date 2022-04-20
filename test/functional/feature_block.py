@@ -95,6 +95,7 @@ class FullBlockTest(BitcoinTestFramework):
     def run_test(self):
         node = self.nodes[0]  # convenience reference to the node
 
+        self.helper_peer = None
         self.bootstrap_p2p()  # Add one p2p connection to the node
 
         self.block_heights = {}
@@ -345,7 +346,9 @@ class FullBlockTest(BitcoinTestFramework):
         self.send_blocks([b24], success=False, reject_reason='bad-blk-length', reconnect=True)
 
         b25 = self.next_block(25, spend=out[7])
-        self.send_blocks([b25], False)
+        # Since the node disconnected it is not allowed to know about the failed chain.
+        # It will redownload b24 and fail on it.
+        self.send_blocks([b25], success=False, reject_reason='bad-blk-length', reconnect=True)
 
         # Create blocks with a coinbase input script size out of range
         #     genesis -> b1 (0) -> b2 (1) -> b5 (2) -> b6  (3)
@@ -364,7 +367,8 @@ class FullBlockTest(BitcoinTestFramework):
 
         # Extend the b26 chain to make sure bitcoind isn't accepting b26
         b27 = self.next_block(27, spend=out[7])
-        self.send_blocks([b27], False)
+        self.send_blocks([b27], success=False, reject_reason='bad-cb-length', reconnect=True)
+        self.send_blocks([b27], success=False, force_send=True)
 
         # Now try a too-large-coinbase script
         self.move_tip(15)
@@ -376,7 +380,8 @@ class FullBlockTest(BitcoinTestFramework):
 
         # Extend the b28 chain to make sure bitcoind isn't accepting b28
         b29 = self.next_block(29, spend=out[7])
-        self.send_blocks([b29], False)
+        self.send_blocks([b29], success=False, reject_reason='bad-cb-length', reconnect=True)
+        self.send_blocks([b29], success=False, force_send=True)
 
         # b30 has a max-sized coinbase scriptSig.
         self.move_tip(23)
@@ -1411,7 +1416,16 @@ class FullBlockTest(BitcoinTestFramework):
         """Add a P2P connection to the node.
 
         Helper to connect and wait for version handshake."""
+        prev_helper = None
+        if self.helper_peer:
+            prev_helper = self.helper_peer
         self.helper_peer = self.nodes[0].add_p2p_connection(P2PDataStore())
+        if prev_helper:
+            self.helper_peer.block_store = prev_helper.block_store
+            self.helper_peer.last_block_hash = prev_helper.last_block_hash
+            self.helper_peer.tx_store = prev_helper.tx_store
+            self.helper_peer.getdata_requests = prev_helper.getdata_requests
+
         # We need to wait for the initial getheaders from the peer before we
         # start populating our blockstore. If we don't, then we may run ahead
         # to the next subtest before we receive the getheaders. We'd then send

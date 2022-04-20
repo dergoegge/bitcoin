@@ -273,14 +273,6 @@ class AcceptBlockTest(BitcoinTestFramework):
         assert_equal(self.nodes[0].getbestblockhash(), all_blocks[286].hash)
         assert_equal(self.nodes[0].getblock(block_291.hash)["confirmations"], -1)
 
-        # Now send a new header on the invalid chain, indicating we're forked off, and expect to get disconnected
-        block_293 = create_block(block_292.sha256, create_coinbase(293), block_292.nTime+1)
-        block_293.solve()
-        headers_message = msg_headers()
-        headers_message.headers.append(CBlockHeader(block_293))
-        test_node.send_message(headers_message)
-        test_node.wait_for_disconnect()
-
         # 9. Connect node1 to node0 and ensure it is able to sync
         self.connect_nodes(0, 1)
         self.sync_blocks([self.nodes[0], self.nodes[1]])
