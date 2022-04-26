@@ -3581,7 +3581,11 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         {
         LOCK(cs_main);
 
-        if (!m_chainman.m_blockman.LookupBlockIndex(cmpctblock.header.hashPrevBlock)) {
+        const CBlockIndex* prev_header_index = m_chainman.m_blockman.LookupBlockIndex(cmpctblock.header.hashPrevBlock);
+        bool prev_block_on_known_chain = prev_header_index &&
+                                         (m_chainman.IsBlockInMainOrBestChain(prev_header_index->GetBlockHash()) ||
+                                          m_chainman.IsBlockInChainTipSet(prev_header_index->GetBlockHash(), GetChainTipSetForPeer(pfrom)));
+        if (!prev_block_on_known_chain) {
             // Doesn't connect (or is genesis), instead of DoSing in AcceptBlockHeader, request deeper headers
             if (!m_chainman.ActiveChainstate().IsInitialBlockDownload())
                 m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETHEADERS, m_chainman.ActiveChain().GetLocator(m_chainman.m_best_header), uint256()));
