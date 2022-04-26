@@ -3570,18 +3570,18 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         bool received_new_header = false;
 
         {
-        LOCK(cs_main);
+            LOCK(cs_main);
 
-        if (!m_chainman.m_blockman.LookupBlockIndex(cmpctblock.header.hashPrevBlock)) {
-            // Doesn't connect (or is genesis), instead of DoSing in AcceptBlockHeader, request deeper headers
-            if (!m_chainman.ActiveChainstate().IsInitialBlockDownload())
-                m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETHEADERS, m_chainman.ActiveChain().GetLocator(m_chainman.m_best_header), uint256()));
-            return;
-        }
+            if (!GetChainTipSetForPeer(pfrom).Contains(cmpctblock.header.hashPrevBlock)) {
+                // Doesn't connect (or is genesis), instead of DoSing in AcceptBlockHeader, request deeper headers
+                if (!m_chainman.ActiveChainstate().IsInitialBlockDownload())
+                    m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETHEADERS, m_chainman.ActiveChain().GetLocator(m_chainman.m_best_header), uint256()));
+                return;
+            }
 
-        if (!m_chainman.m_blockman.LookupBlockIndex(cmpctblock.header.GetHash())) {
-            received_new_header = true;
-        }
+            if (!m_chainman.m_blockman.LookupBlockIndex(cmpctblock.header.GetHash())) {
+                received_new_header = true;
+            }
         }
 
         const CBlockIndex *pindex = nullptr;
