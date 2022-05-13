@@ -636,6 +636,12 @@ template<typename Stream, typename T, typename A, typename V> void Unserialize_i
 template<typename Stream, typename T, typename A> inline void Unserialize(Stream& is, std::vector<T, A>& v);
 
 /**
+ * array
+ */
+template <typename Stream> void Serialize(Stream& os, const std::array<uint8_t, 32>& a);
+template <typename Stream> void Unserialize(Stream& is, std::array<uint8_t, 32>& a);
+
+/**
  * pair
  */
 template<typename Stream, typename K, typename T> void Serialize(Stream& os, const std::pair<K, T>& item);
@@ -840,7 +846,23 @@ inline void Unserialize(Stream& is, std::vector<T, A>& v)
     Unserialize_impl(is, v, T());
 }
 
-
+/**
+ * array
+ */
+template <typename Stream>
+void Serialize(Stream& os, const std::array<uint8_t, 32>& a)
+{
+    for (const uint8_t& e : a) {
+        Serialize(os, e);
+    }
+}
+template <typename Stream>
+void Unserialize(Stream& is, std::array<uint8_t, 32>& a)
+{
+    for (unsigned int i = 0; i < 32; ++i) {
+        Unserialize(is, a[i]);
+    }
+}
 
 /**
  * pair
