@@ -898,6 +898,7 @@ bool CConnman::AttemptToEvictConnection()
     if (!node_id_to_evict) {
         return false;
     }
+
     LOCK(m_nodes_mutex);
     for (CNode* pnode : m_nodes) {
         if (pnode->GetId() == *node_id_to_evict) {
@@ -1036,6 +1037,16 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
         m_nodes.push_back(pnode);
     }
 
+    m_evictionman.AddCandidate(
+        /*id=*/pnode->GetId(),
+        /*connected=*/pnode->m_connected,
+        /*keyed_net_group=*/pnode->nKeyedNetGroup,
+        /*prefer_evict=*/pnode->m_prefer_evict,
+        /*is_local=*/pnode->addr.IsLocal(),
+        /*network=*/pnode->ConnectedThroughNetwork(),
+        /*noban=*/pnode->HasPermission(NetPermissionFlags::NoBan),
+        /*conn_type=*/ConnectionType::INBOUND);
+
     // We received a new connection, harvest entropy from the time (and our peer count)
     RandAddEvent((uint32_t)id);
 }
@@ -1078,6 +1089,7 @@ bool CConnman::AddConnection(const std::string& address, ConnectionType conn_typ
 
 void CConnman::DisconnectNodes()
 {
+    std::vector<NodeId> disconnected_eviction_candidates;
     {
         LOCK(m_nodes_mutex);
 
@@ -1100,6 +1112,9 @@ void CConnman::DisconnectNodes()
                 // remove from m_nodes
                 m_nodes.erase(remove(m_nodes.begin(), m_nodes.end(), pnode), m_nodes.end());
 
+                // Tell the eviction manager to forget about this node
+                disconnected_eviction_candidates.push_back(pnode->GetId());
+
                 // release outbound grant (if any)
                 pnode->grantOutbound.Release();
 
@@ -1112,6 +1127,11 @@ void CConnman::DisconnectNodes()
             }
         }
     }
+
+    for (NodeId id : disconnected_eviction_candidates) {
+        m_evictionman.RemoveCandidate(id);
+    }
+
     {
         // Delete disconnected nodes
         std::list<CNode*> nodes_disconnected_copy = m_nodes_disconnected;
@@ -1970,6 +1990,16 @@ void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFai
         LOCK(m_nodes_mutex);
         m_nodes.push_back(pnode);
     }
+
+    m_evictionman.AddCandidate(
+        /*id=*/pnode->GetId(),
+        /*connected=*/pnode->m_connected,
+        /*keyed_net_group=*/pnode->nKeyedNetGroup,
+        /*prefer_evict=*/pnode->m_prefer_evict,
+        /*is_local=*/pnode->addr.IsLocal(),
+        /*network=*/pnode->ConnectedThroughNetwork(),
+        /*noban=*/pnode->HasPermission(NetPermissionFlags::NoBan),
+        /*conn_type=*/conn_type);
 }
 
 void CConnman::ThreadMessageHandler()

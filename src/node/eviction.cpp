@@ -4,6 +4,7 @@
 
 #include <node/eviction.h>
 #include <node/eviction_impl.h>
+#include <util/designator.h>
 
 #include <algorithm>
 #include <array>
@@ -243,6 +244,53 @@ void ProtectEvictionCandidatesByRatio(std::vector<NodeEvictionCandidate>& evicti
 EvictionManagerImpl::EvictionManagerImpl() {}
 EvictionManagerImpl::~EvictionManagerImpl() = default;
 
+void EvictionManagerImpl::AddCandidate(NodeId id, std::chrono::seconds connected,
+                                       uint64_t keyed_net_group, bool prefer_evict,
+                                       bool is_local, Network network,
+                                       bool noban, ConnectionType conn_type)
+{
+    LOCK(m_candidates_mutex);
+    // The default values used to initialise the eviction candidates result in
+    // newer candidates being more likely to be evicted.
+    NodeEvictionCandidate candidate{
+        Desig(id) id,
+        Desig(m_connected) connected,
+        Desig(m_min_ping_time) std::chrono::microseconds::max(),
+        Desig(m_last_block_time) 0s,
+        Desig(m_last_tx_time) 0s,
+        Desig(fRelevantServices) false,
+        Desig(m_relay_txs) false,
+        Desig(fBloomFilter) false,
+        Desig(nKeyedNetGroup) keyed_net_group,
+        Desig(prefer_evict) prefer_evict,
+        Desig(m_is_local) is_local,
+        Desig(m_network) network,
+        Desig(m_noban) noban,
+        Desig(m_conn_type) conn_type,
+    };
+    m_candidates.emplace_hint(m_candidates.end(), id, std::move(candidate));
+}
+
+bool EvictionManagerImpl::RemoveCandidate(NodeId id)
+{
+    LOCK(m_candidates_mutex);
+    return m_candidates.erase(id) != 0;
+}
+
 EvictionManager::EvictionManager()
     : m_impl(std::make_unique<EvictionManagerImpl>()) {}
 EvictionManager::~EvictionManager() = default;
+
+void EvictionManager::AddCandidate(NodeId id, std::chrono::seconds connected,
+                                   uint64_t keyed_net_group, bool prefer_evict,
+                                   bool is_local, Network network,
+                                   bool noban, ConnectionType conn_type)
+{
+    m_impl->AddCandidate(id, connected, keyed_net_group, prefer_evict,
+                         is_local, network, noban, conn_type);
+}
+
+bool EvictionManager::RemoveCandidate(NodeId id)
+{
+    return m_impl->RemoveCandidate(id);
+}
