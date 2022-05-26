@@ -217,7 +217,6 @@ BOOST_AUTO_TEST_CASE(stale_tip_peer_management)
     // Update the last announced block time for the last
     // peer, and check that the next newest node gets evicted.
     auto curtime = GetTime();
-    peerLogic->UpdateLastBlockAnnounceTime(vNodes.back()->GetId(), curtime);
     evictor->UpdateLastBlockAnnouncementTime(vNodes.back()->GetId(), curtime);
 
     peerLogic->CheckForStaleTipAndEvictPeers();
