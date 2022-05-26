@@ -364,7 +364,6 @@ public:
     const std::string m_addr_name;
     //! Whether this peer is an inbound onion, i.e. connected via our Tor onion service.
     const bool m_inbound_onion;
-    const bool m_prefer_evict{false}; // This peer is preferred for eviction.
     bool HasPermission(NetPermissionFlags permission) const {
         return NetPermissions::HasFlag(m_permission_flags, permission);
     }
@@ -375,7 +374,6 @@ public:
     std::atomic_bool fDisconnect{false};
     CSemaphoreGrant grantOutbound;
 
-    const uint64_t nKeyedNetGroup;
     std::atomic_bool fPauseSend{false};
 
     const ConnectionType m_conn_type;
@@ -547,7 +545,6 @@ public:
     CNode(NodeId id,
           std::shared_ptr<Sock> sock,
           const CAddress& addrIn,
-          uint64_t nKeyedNetGroupIn,
           const CAddress& addrBindIn,
           const std::string& addrNameIn,
           ConnectionType conn_type_in,
