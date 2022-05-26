@@ -299,7 +299,6 @@ auto ConsumeNode(FuzzedDataProvider& fuzzed_data_provider, const std::optional<N
     const ServiceFlags local_services = ConsumeWeakEnum(fuzzed_data_provider, ALL_SERVICE_FLAGS);
     const auto sock = std::make_shared<FuzzedSock>(fuzzed_data_provider);
     const CAddress address = ConsumeAddress(fuzzed_data_provider);
-    const uint64_t keyed_net_group = fuzzed_data_provider.ConsumeIntegral<uint64_t>();
     const uint64_t local_host_nonce = fuzzed_data_provider.ConsumeIntegral<uint64_t>();
     const CAddress addr_bind = ConsumeAddress(fuzzed_data_provider);
     const std::string addr_name = fuzzed_data_provider.ConsumeRandomLengthString(64);
@@ -310,7 +309,6 @@ auto ConsumeNode(FuzzedDataProvider& fuzzed_data_provider, const std::optional<N
                                        local_services,
                                        sock,
                                        address,
-                                       keyed_net_group,
                                        local_host_nonce,
                                        addr_bind,
                                        addr_name,
@@ -321,7 +319,6 @@ auto ConsumeNode(FuzzedDataProvider& fuzzed_data_provider, const std::optional<N
                      local_services,
                      sock,
                      address,
-                     keyed_net_group,
                      local_host_nonce,
                      addr_bind,
                      addr_name,

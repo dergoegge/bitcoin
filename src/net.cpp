@@ -547,7 +547,6 @@ CNode* CConnman::ConnectNode(CAddress addrConnect, const char *pszDest, bool fCo
                              nLocalServices,
                              std::move(sock),
                              addrConnect,
-                             CalculateKeyedNetGroup(addrConnect),
                              nonce,
                              addr_bind,
                              pszDest ? pszDest : "",
@@ -1013,7 +1012,6 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
                              nodeServices,
                              std::move(sock),
                              addr,
-                             CalculateKeyedNetGroup(addr),
                              nonce,
                              addr_bind,
                              /*addrNameIn=*/"",
@@ -1021,7 +1019,6 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
                              inbound_onion);
     pnode->AddRef();
     pnode->m_permissionFlags = permissionFlags;
-    pnode->m_prefer_evict = discouraged;
     m_msgproc->InitializeNode(pnode);
 
     LogPrint(BCLog::NET, "connection from %s accepted\n", addr.ToString());
@@ -1034,8 +1031,8 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
     m_evictionman.AddCandidate(
         /*id=*/pnode->GetId(),
         /*connected=*/pnode->m_connected,
-        /*keyed_net_group=*/pnode->nKeyedNetGroup,
-        /*prefer_evict=*/pnode->m_prefer_evict,
+        /*keyed_net_group=*/CalculateKeyedNetGroup(addr),
+        /*prefer_evict=*/discouraged,
         /*is_local=*/pnode->addr.IsLocal(),
         /*network=*/pnode->ConnectedThroughNetwork(),
         /*noban=*/pnode->HasPermission(NetPermissionFlags::NoBan),
@@ -1988,8 +1985,8 @@ void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFai
     m_evictionman.AddCandidate(
         /*id=*/pnode->GetId(),
         /*connected=*/pnode->m_connected,
-        /*keyed_net_group=*/pnode->nKeyedNetGroup,
-        /*prefer_evict=*/pnode->m_prefer_evict,
+        /*keyed_net_group=*/CalculateKeyedNetGroup(addrConnect),
+        /*prefer_evict=*/false,
         /*is_local=*/pnode->addr.IsLocal(),
         /*network=*/pnode->ConnectedThroughNetwork(),
         /*noban=*/pnode->HasPermission(NetPermissionFlags::NoBan),
@@ -2734,14 +2731,13 @@ ServiceFlags CConnman::GetLocalServices() const
 
 unsigned int CConnman::GetReceiveFloodSize() const { return nReceiveFloodSize; }
 
-CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, std::shared_ptr<Sock> sock, const CAddress& addrIn, uint64_t nKeyedNetGroupIn, uint64_t nLocalHostNonceIn, const CAddress& addrBindIn, const std::string& addrNameIn, ConnectionType conn_type_in, bool inbound_onion)
+CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, std::shared_ptr<Sock> sock, const CAddress& addrIn, uint64_t nLocalHostNonceIn, const CAddress& addrBindIn, const std::string& addrNameIn, ConnectionType conn_type_in, bool inbound_onion)
     : m_sock{sock},
       m_connected{GetTime<std::chrono::seconds>()},
       addr(addrIn),
       addrBind(addrBindIn),
       m_addr_name{addrNameIn.empty() ? addr.ToStringIPPort() : addrNameIn},
       m_inbound_onion(inbound_onion),
-      nKeyedNetGroup(nKeyedNetGroupIn),
       id(idIn),
       nLocalHostNonce(nLocalHostNonceIn),
       m_conn_type(conn_type_in),

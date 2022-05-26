@@ -396,7 +396,6 @@ public:
      * from the wire. This cleaned string can safely be logged or displayed.
      */
     std::string cleanSubVer GUARDED_BY(m_subver_mutex){};
-    bool m_prefer_evict{false}; // This peer is preferred for eviction.
     bool HasPermission(NetPermissionFlags permission) const {
         return NetPermissions::HasFlag(m_permissionFlags, permission);
     }
@@ -410,7 +409,6 @@ public:
     CSemaphoreGrant grantOutbound;
     std::atomic<int> nRefCount{0};
 
-    const uint64_t nKeyedNetGroup;
     std::atomic_bool fPauseRecv{false};
     std::atomic_bool fPauseSend{false};
 
@@ -515,7 +513,7 @@ public:
      * criterium in CConnman::AttemptToEvictConnection. */
     std::atomic<std::chrono::microseconds> m_min_ping_time{std::chrono::microseconds::max()};
 
-    CNode(NodeId id, ServiceFlags nLocalServicesIn, std::shared_ptr<Sock> sock, const CAddress& addrIn, uint64_t nKeyedNetGroupIn, uint64_t nLocalHostNonceIn, const CAddress& addrBindIn, const std::string& addrNameIn, ConnectionType conn_type_in, bool inbound_onion);
+    CNode(NodeId id, ServiceFlags nLocalServicesIn, std::shared_ptr<Sock> sock, const CAddress& addrIn, uint64_t nLocalHostNonceIn, const CAddress& addrBindIn, const std::string& addrNameIn, ConnectionType conn_type_in, bool inbound_onion);
     CNode(const CNode&) = delete;
     CNode& operator=(const CNode&) = delete;
 
