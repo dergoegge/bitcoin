@@ -4,6 +4,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <eviction.h>
+#include <eviction_impl.h>
 #include <logging.h>
 #include <util/time.h>
 
@@ -232,19 +233,21 @@ void ProtectEvictionCandidatesByRatio(std::vector<NodeEvictionCandidate>& evicti
     return vEvictionCandidates.front().id;
 }
 
-void Evictor::AddCandidate(NodeEvictionCandidate candidate)
+EvictorImpl::~EvictorImpl() = default;
+
+void EvictorImpl::AddCandidate(NodeEvictionCandidate candidate)
 {
     LOCK(m_candidates_mutex);
     m_candidates.emplace_hint(m_candidates.end(), candidate.id, std::move(candidate));
 }
 
-bool Evictor::RemoveCandidate(NodeId id)
+bool EvictorImpl::RemoveCandidate(NodeId id)
 {
     LOCK(m_candidates_mutex);
     return m_candidates.erase(id) != 0;
 }
 
-void Evictor::UpdateMinPingTime(NodeId id, std::chrono::microseconds ping_time)
+void EvictorImpl::UpdateMinPingTime(NodeId id, std::chrono::microseconds ping_time)
 {
     LOCK(m_candidates_mutex);
     if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
@@ -252,7 +255,7 @@ void Evictor::UpdateMinPingTime(NodeId id, std::chrono::microseconds ping_time)
     }
 }
 
-void Evictor::UpdateLatestBlockTime(NodeId id, std::chrono::seconds time)
+void EvictorImpl::UpdateLatestBlockTime(NodeId id, std::chrono::seconds time)
 {
     LOCK(m_candidates_mutex);
     if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
@@ -260,14 +263,14 @@ void Evictor::UpdateLatestBlockTime(NodeId id, std::chrono::seconds time)
     }
 }
 
-void Evictor::UpdateLatestTxTime(NodeId id, std::chrono::seconds time)
+void EvictorImpl::UpdateLatestTxTime(NodeId id, std::chrono::seconds time)
 {
     LOCK(m_candidates_mutex);
     if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
         it->second.m_last_tx_time = time;
     }
 }
-void Evictor::UpdateRelevantServices(NodeId id, bool relevant)
+void EvictorImpl::UpdateRelevantServices(NodeId id, bool relevant)
 {
     LOCK(m_candidates_mutex);
     if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
@@ -275,7 +278,7 @@ void Evictor::UpdateRelevantServices(NodeId id, bool relevant)
     }
 }
 
-void Evictor::UpdateRelaysTxs(NodeId id, bool relay)
+void EvictorImpl::UpdateRelaysTxs(NodeId id, bool relay)
 {
     LOCK(m_candidates_mutex);
     if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
@@ -283,7 +286,7 @@ void Evictor::UpdateRelaysTxs(NodeId id, bool relay)
     }
 }
 
-void Evictor::UpdateLoadedBloomFilter(NodeId id, bool loaded)
+void EvictorImpl::UpdateLoadedBloomFilter(NodeId id, bool loaded)
 {
     LOCK(m_candidates_mutex);
     if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
@@ -291,7 +294,7 @@ void Evictor::UpdateLoadedBloomFilter(NodeId id, bool loaded)
     }
 }
 
-void Evictor::UpdateSuccessfullyConnected(NodeId id, bool connected)
+void EvictorImpl::UpdateSuccessfullyConnected(NodeId id, bool connected)
 {
     LOCK(m_candidates_mutex);
     if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
@@ -299,7 +302,7 @@ void Evictor::UpdateSuccessfullyConnected(NodeId id, bool connected)
     }
 }
 
-void Evictor::UpdateBlocksInFlight(NodeId id, bool add)
+void EvictorImpl::UpdateBlocksInFlight(NodeId id, bool add)
 {
     LOCK(m_candidates_mutex);
     if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
@@ -307,7 +310,7 @@ void Evictor::UpdateBlocksInFlight(NodeId id, bool add)
     }
 }
 
-void Evictor::UpdateLastBlockAnnouncementTime(NodeId id, int64_t time)
+void EvictorImpl::UpdateLastBlockAnnouncementTime(NodeId id, int64_t time)
 {
     LOCK(m_candidates_mutex);
     if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
@@ -315,7 +318,7 @@ void Evictor::UpdateLastBlockAnnouncementTime(NodeId id, int64_t time)
     }
 }
 
-void Evictor::UpdateSlowChainProtected(NodeId id, bool is_protected)
+void EvictorImpl::UpdateSlowChainProtected(NodeId id, bool is_protected)
 {
     LOCK(m_candidates_mutex);
     if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
@@ -323,7 +326,7 @@ void Evictor::UpdateSlowChainProtected(NodeId id, bool is_protected)
     }
 }
 
-std::optional<NodeId> Evictor::SelectIncomingNodeToEvict() const
+std::optional<NodeId> EvictorImpl::SelectIncomingNodeToEvict() const
 {
     std::vector<NodeEvictionCandidate> candidates;
     {
@@ -336,7 +339,7 @@ std::optional<NodeId> Evictor::SelectIncomingNodeToEvict() const
 }
 
 
-std::optional<NodeId> Evictor::EvictExtraBlockOutboundPeers(std::chrono::seconds time_in_seconds)
+std::optional<NodeId> EvictorImpl::EvictExtraBlockOutboundPeers(std::chrono::seconds time_in_seconds)
 {
     LOCK(m_candidates_mutex);
     int block_relay_peers = 0;
@@ -384,7 +387,7 @@ std::optional<NodeId> Evictor::EvictExtraBlockOutboundPeers(std::chrono::seconds
     return {};
 }
 
-std::optional<NodeId> Evictor::EvictExtraFullOutboundPeers(std::chrono::seconds time_in_seconds)
+std::optional<NodeId> EvictorImpl::EvictExtraFullOutboundPeers(std::chrono::seconds time_in_seconds)
 {
     LOCK(m_candidates_mutex);
     // Check whether we have too many outbound-full-relay peers
@@ -420,4 +423,83 @@ std::optional<NodeId> Evictor::EvictExtraFullOutboundPeers(std::chrono::seconds 
         }
     }
     return {};
+}
+
+Evictor::Evictor(int max_outbound_block_relay, int max_outbound_full_relay)
+    : m_impl(std::make_unique<EvictorImpl>(max_outbound_block_relay, max_outbound_full_relay)) {}
+
+Evictor::~Evictor() = default;
+
+void Evictor::AddCandidate(NodeEvictionCandidate candidate)
+{
+    m_impl->AddCandidate(candidate);
+}
+
+bool Evictor::RemoveCandidate(NodeId id)
+{
+    return m_impl->RemoveCandidate(id);
+}
+
+void Evictor::UpdateMinPingTime(NodeId id, std::chrono::microseconds ping_time)
+{
+    m_impl->UpdateMinPingTime(id, ping_time);
+}
+
+void Evictor::UpdateLatestBlockTime(NodeId id, std::chrono::seconds time)
+{
+    m_impl->UpdateLatestBlockTime(id, time);
+}
+
+void Evictor::UpdateLatestTxTime(NodeId id, std::chrono::seconds time)
+{
+    m_impl->UpdateLatestTxTime(id, time);
+}
+void Evictor::UpdateRelevantServices(NodeId id, bool relevant)
+{
+    m_impl->UpdateRelevantServices(id, relevant);
+}
+
+void Evictor::UpdateRelaysTxs(NodeId id, bool relay)
+{
+    m_impl->UpdateRelaysTxs(id, relay);
+}
+
+void Evictor::UpdateLoadedBloomFilter(NodeId id, bool loaded)
+{
+    m_impl->UpdateLoadedBloomFilter(id, loaded);
+}
+
+void Evictor::UpdateSuccessfullyConnected(NodeId id, bool connected)
+{
+    m_impl->UpdateSuccessfullyConnected(id, connected);
+}
+
+void Evictor::UpdateBlocksInFlight(NodeId id, bool add)
+{
+    m_impl->UpdateBlocksInFlight(id, add);
+}
+
+void Evictor::UpdateLastBlockAnnouncementTime(NodeId id, int64_t time)
+{
+    m_impl->UpdateLastBlockAnnouncementTime(id, time);
+}
+
+void Evictor::UpdateSlowChainProtected(NodeId id, bool is_protected)
+{
+    m_impl->UpdateSlowChainProtected(id, is_protected);
+}
+
+std::optional<NodeId> Evictor::SelectIncomingNodeToEvict() const
+{
+    return m_impl->SelectIncomingNodeToEvict();
+}
+
+std::optional<NodeId> Evictor::EvictExtraBlockOutboundPeers(std::chrono::seconds time_in_seconds)
+{
+    return m_impl->EvictExtraBlockOutboundPeers(time_in_seconds);
+}
+
+std::optional<NodeId> Evictor::EvictExtraFullOutboundPeers(std::chrono::seconds time_in_seconds)
+{
+    return m_impl->EvictExtraFullOutboundPeers(time_in_seconds);
 }

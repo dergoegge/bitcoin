@@ -886,29 +886,11 @@ size_t CConnman::SocketSendData(CNode& node) const
  */
 bool CConnman::AttemptToEvictConnection()
 {
-    std::vector<NodeEvictionCandidate> vEvictionCandidates;
-    {
-
-        LOCK(m_nodes_mutex);
-        for (const CNode* node : m_nodes) {
-            NodeEvictionCandidate candidate = {node->GetId(), node->m_connected, node->m_min_ping_time,
-                                               node->m_last_block_time, node->m_last_tx_time,
-                                               HasAllDesirableServiceFlags(node->nServices),
-                                               node->m_relays_txs.load(), node->m_bloom_filter_loaded.load(),
-                                               node->nKeyedNetGroup, node->m_prefer_evict, node->addr.IsLocal(),
-                                               node->ConnectedThroughNetwork(),
-                                               node->m_permissionFlags,
-                                               node->IsInboundConn()};
-            vEvictionCandidates.push_back(candidate);
-        }
-    }
-    const std::optional<NodeId> node_id_to_evict = SelectIncomingNodeToEvict(std::move(vEvictionCandidates));
-    if (m_evictor) {
-        assert(node_id_to_evict == m_evictor->SelectIncomingNodeToEvict());
-    }
+    const std::optional<NodeId> node_id_to_evict = m_evictor->SelectIncomingNodeToEvict();
     if (!node_id_to_evict) {
         return false;
     }
+
     LOCK(m_nodes_mutex);
     for (CNode* pnode : m_nodes) {
         if (pnode->GetId() == *node_id_to_evict) {
