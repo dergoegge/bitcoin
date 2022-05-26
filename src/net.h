@@ -12,6 +12,7 @@
 #include <node/connection_types.h>
 #include <consensus/amount.h>
 #include <crypto/siphash.h>
+#include <node/eviction.h>
 #include <hash.h>
 #include <i2p.h>
 #include <net_permissions.h>
@@ -720,7 +721,7 @@ public:
     }
 
     CConnman(uint64_t seed0, uint64_t seed1, AddrMan& addrman, const NetGroupManager& netgroupman,
-             bool network_active = true);
+             EvictionManager& evictionman, bool network_active = true);
 
     ~CConnman();
 
@@ -997,6 +998,7 @@ private:
     bool fAddressesInitialized{false};
     AddrMan& addrman;
     const NetGroupManager& m_netgroupman;
+    EvictionManager& m_evictionman;
     std::deque<std::string> m_addr_fetches GUARDED_BY(m_addr_fetches_mutex);
     Mutex m_addr_fetches_mutex;
     std::vector<std::string> m_added_nodes GUARDED_BY(m_added_nodes_mutex);

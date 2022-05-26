@@ -150,6 +150,7 @@ BITCOIN_CORE_H = \
   deploymentinfo.h \
   deploymentstatus.h \
   node/eviction.h \
+  node/eviction_impl.h \
   external_signer.h \
   flatfile.h \
   fs.h \

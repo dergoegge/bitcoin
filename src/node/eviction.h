@@ -66,4 +66,17 @@ struct NodeEvictionCandidate {
  */
 void ProtectEvictionCandidatesByRatio(std::vector<NodeEvictionCandidate>& vEvictionCandidates);
 
+class EvictionManagerImpl;
+
+class EvictionManager
+{
+private:
+    const std::unique_ptr<EvictionManagerImpl> m_impl;
+
+public:
+    explicit EvictionManager();
+    ~EvictionManager();
+};
+
+
 #endif // BITCOIN_NODE_EVICTION_H
