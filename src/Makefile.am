@@ -213,6 +213,7 @@ BITCOIN_CORE_H = \
   node/context.h \
   node/database_args.h \
   node/eviction.h \
+  node/eviction_impl.h \
   node/interface_ui.h \
   node/mempool_args.h \
   node/mempool_persist_args.h \

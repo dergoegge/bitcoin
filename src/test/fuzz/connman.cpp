@@ -37,6 +37,7 @@ FUZZ_TARGET_INIT(connman, initialize_connman)
                      fuzzed_data_provider.ConsumeIntegral<uint64_t>(),
                      *g_setup->m_node.addrman,
                      *g_setup->m_node.netgroupman,
+                     *g_setup->m_node.evictionman,
                      fuzzed_data_provider.ConsumeBool()};
     CNetAddr random_netaddr;
     CNode random_node = ConsumeNode(fuzzed_data_provider);
