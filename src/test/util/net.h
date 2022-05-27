@@ -6,7 +6,7 @@
 #define BITCOIN_TEST_UTIL_NET_H
 
 #include <compat.h>
-#include <node/eviction.h>
+#include <node/eviction_impl.h>
 #include <netaddress.h>
 #include <net.h>
 #include <util/sock.h>
