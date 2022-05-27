@@ -992,6 +992,7 @@ void PeerManagerImpl::RemoveBlockRequest(const uint256& hash)
     state->vBlocksInFlight.erase(list_it);
 
     state->nBlocksInFlight--;
+    m_evictionman.RemoveBlockInFlight(node_id);
     if (state->nBlocksInFlight == 0) {
         // Last validated block on the queue was received.
         m_peers_downloading_from--;
@@ -1022,6 +1023,7 @@ bool PeerManagerImpl::BlockRequested(NodeId nodeid, const CBlockIndex& block, st
     std::list<QueuedBlock>::iterator it = state->vBlocksInFlight.insert(state->vBlocksInFlight.end(),
             {&block, std::unique_ptr<PartiallyDownloadedBlock>(pit ? new PartiallyDownloadedBlock(&m_mempool) : nullptr)});
     state->nBlocksInFlight++;
+    m_evictionman.AddBlockInFlight(nodeid);
     if (state->nBlocksInFlight == 1) {
         // We're starting a block download (batch) from this peer.
         state->m_downloading_since = GetTime<std::chrono::microseconds>();

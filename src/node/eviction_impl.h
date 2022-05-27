@@ -31,6 +31,7 @@ struct NodeEvictionCandidate {
     Network m_network;
     bool m_noban;
     ConnectionType m_conn_type;
+    int m_blocks_in_flight;
 };
 
 [[nodiscard]] std::optional<NodeId> SelectNodeToEvict(std::vector<NodeEvictionCandidate>&& vEvictionCandidates);
@@ -102,6 +103,9 @@ public:
         EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
 
     void UpdateRelayTxs(NodeId id) EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
+
+    void AddBlockInFlight(NodeId id) EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
+    void RemoveBlockInFlight(NodeId id) EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
 };
 
 #endif // BITCOIN_NODE_EVICTION_IMPL_H

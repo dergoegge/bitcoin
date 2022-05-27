@@ -61,6 +61,10 @@ public:
 
     /** Set the candidates tx relay status to true. */
     void UpdateRelayTxs(NodeId id);
+
+    /** Update the candidates number of blocks in flight. */
+    void AddBlockInFlight(NodeId id);
+    void RemoveBlockInFlight(NodeId id);
 };
 
 
