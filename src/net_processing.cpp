@@ -3351,7 +3351,9 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 LOCK(tx_relay->m_bloom_filter_mutex);
                 tx_relay->m_relay_txs = fRelay; // set to true after we get the first filter* message
             }
-            if (fRelay) pfrom.m_relays_txs = true;
+            if (fRelay) {
+                m_evictionman.UpdateRelayTxs(pfrom.GetId());
+            }
         }
 
         if (greatest_common_version >= WTXID_RELAY_VERSION && m_txreconciliation) {
@@ -3361,7 +3363,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             // - this is not a block-relay-only connection and not a feeler (see m_relays_txs);
             // - this is not an addr fetch connection;
             // - we are not in -blocksonly mode.
-            if (pfrom.m_relays_txs && !pfrom.IsAddrFetchConn() && !m_ignore_incoming_txs) {
+            if (peer->GetTxRelay() && fRelay && !pfrom.IsAddrFetchConn() && !m_ignore_incoming_txs) {
                 const uint64_t recon_salt = m_txreconciliation->PreRegisterPeer(pfrom.GetId());
                 m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::SENDTXRCNCL,
                                                              TXRECONCILIATION_VERSION, recon_salt));
@@ -3594,7 +3596,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // Peer must not offer us reconciliations if they specified no tx relay support in VERSION.
         // This flag might also be false in other cases, but the RejectIncomingTxs check above
         // eliminates them, so that this flag fully represents what we are looking for.
-        if (!pfrom.m_relays_txs) {
+        if (peer->GetTxRelay() == nullptr) {
             LogPrintLevel(BCLog::NET, BCLog::Level::Debug, "sendtxrcncl received from peer=%d which indicated no tx relay to us; disconnecting\n", pfrom.GetId());
             pfrom.fDisconnect = true;
             return;
@@ -4782,8 +4784,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 tx_relay->m_bloom_filter.reset(new CBloomFilter(filter));
                 tx_relay->m_relay_txs = true;
             }
-            pfrom.m_bloom_filter_loaded = true;
-            pfrom.m_relays_txs = true;
+            m_evictionman.UpdateLoadedBloomFilter(pfrom.GetId(), true);
+            m_evictionman.UpdateRelayTxs(pfrom.GetId());
         }
         return;
     }
@@ -4830,8 +4832,9 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             tx_relay->m_bloom_filter = nullptr;
             tx_relay->m_relay_txs = true;
         }
-        pfrom.m_bloom_filter_loaded = false;
-        pfrom.m_relays_txs = true;
+
+        m_evictionman.UpdateLoadedBloomFilter(pfrom.GetId(), false);
+        m_evictionman.UpdateRelayTxs(pfrom.GetId());
         return;
     }
 
