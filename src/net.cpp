@@ -609,8 +609,6 @@ void CNode::CopyStats(CNodeStats& stats)
     stats.m_network = ConnectedThroughNetwork();
     X(m_last_send);
     X(m_last_recv);
-    X(m_last_tx_time);
-    X(m_last_block_time);
     X(m_connected);
     X(nTimeOffset);
     X(m_addr_name);
@@ -635,7 +633,6 @@ void CNode::CopyStats(CNodeStats& stats)
     X(m_permissionFlags);
 
     X(m_last_ping_time);
-    X(m_min_ping_time);
 
     // Leave string empty if addrLocal invalid (not filled in yet)
     CService addrLocalUnlocked = GetAddrLocal();
@@ -877,9 +874,6 @@ bool CConnman::AttemptToEvictConnection()
             auto eviction_candidate{m_evictionman.GetCandidate(node->GetId())};
             assert(eviction_candidate);
 
-            eviction_candidate->m_min_ping_time = node->m_min_ping_time;
-            eviction_candidate->m_last_block_time = node->m_last_block_time;
-            eviction_candidate->m_last_tx_time = node->m_last_tx_time;
             eviction_candidate->fRelevantServices = HasAllDesirableServiceFlags(node->nServices);
             eviction_candidate->m_relay_txs = node->m_relays_txs.load();
             eviction_candidate->fBloomFilter = node->m_bloom_filter_loaded.load();
@@ -2577,6 +2571,22 @@ void CConnman::GetNodeStats(std::vector<CNodeStats>& vstats) const
     for (CNode* pnode : m_nodes) {
         vstats.emplace_back();
         pnode->CopyStats(vstats.back());
+
+        auto min_ping_time{m_evictionman.GetMinPingTime(pnode->GetId())};
+        if (min_ping_time) {
+            vstats.back().m_min_ping_time = *min_ping_time;
+        }
+
+        auto last_block_time{m_evictionman.GetLastBlockTime(pnode->GetId())};
+        if (last_block_time) {
+            vstats.back().m_last_block_time = *last_block_time;
+        }
+
+        auto last_tx_time{m_evictionman.GetLastTxTime(pnode->GetId())};
+        if (last_tx_time) {
+            vstats.back().m_last_tx_time = *last_tx_time;
+        }
+
         vstats.back().m_mapped_as = m_netgroupman.GetMappedAS(pnode->addr);
     }
 }
