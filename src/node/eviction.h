@@ -65,6 +65,10 @@ public:
     /** Update the candidates number of blocks in flight. */
     void AddBlockInFlight(NodeId id);
     void RemoveBlockInFlight(NodeId id);
+
+    /** Update timestamp of last block announcement. */
+    void UpdateLastBlockAnnounceTime(NodeId id, std::chrono::seconds last_block_announcement);
+    std::optional<std::chrono::seconds> GetLastBlockAnnounceTime(NodeId id) const;
 };
 
 
