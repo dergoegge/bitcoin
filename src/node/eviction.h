@@ -99,6 +99,12 @@ public:
 
     /** Update the candidates relevant services flag. */
     void UpdateRelevantServices(NodeId id, bool has_relevant_flags);
+
+    /** Update the candidates bloom filter loaded flag. */
+    void UpdateLoadedBloomFilter(NodeId id, bool bloom_filter_loaded);
+
+    /** Set the candidates tx relay status to true. */
+    void UpdateRelayTxs(NodeId id);
 };
 
 
