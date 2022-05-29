@@ -69,6 +69,9 @@ public:
     /** Update timestamp of last block announcement. */
     void UpdateLastBlockAnnounceTime(NodeId id, std::chrono::seconds last_block_announcement);
     std::optional<std::chrono::seconds> GetLastBlockAnnounceTime(NodeId id) const;
+
+    /** Set the candidates slow chain protection status to true. */
+    void UpdateSlowChainProtected(NodeId id);
 };
 
 
