@@ -899,6 +899,7 @@ private:
             return *it->second;
         }
 
+        LogPrint(BCLog::NET, "GetPeermanForPeer creating for peer=%d: peerman=%d\n", node.GetId(), peerman_id);
         std::unique_ptr<PeerManagerImpl> new_peerman{std::make_unique<PeerManagerImpl>(
             m_connman, m_addrman,
             m_banman, m_chainman,
@@ -913,6 +914,12 @@ public:
         : m_connman{connman}, m_addrman{addrman},
           m_banman{banman}, m_chainman{chainman},
           m_pool{pool}, m_ignore_incoming_txs{ignore_incoming_txs} {}
+    ~MultiPeerManager()
+    {
+        for (const auto& [id, peerman] : m_peer_managers) {
+            LogPrint(BCLog::NET, "~MultiPeerManager peerman=%d\n", id);
+        }
+    }
 
     /** Overridden from CValidationInterface. */
     void BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindexConnected) override
@@ -2830,7 +2837,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                                      const std::chrono::microseconds time_received,
                                      const std::atomic<bool>& interruptMsgProc)
 {
-    LogPrint(BCLog::NET, "received: %s (%u bytes) peer=%d\n", SanitizeString(msg_type), vRecv.size(), pfrom.GetId());
+    LogPrint(BCLog::NET, "received: %s (%u bytes) peer=%d network=%s\n", SanitizeString(msg_type), vRecv.size(), pfrom.GetId(), GetNetworkName(pfrom.ConnectedThroughNetwork()));
 
     PeerRef peer = GetPeerRef(pfrom.GetId());
     if (peer == nullptr) return;
