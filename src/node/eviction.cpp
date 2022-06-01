@@ -271,6 +271,7 @@ void EvictionManagerImpl::AddCandidate(NodeId id, std::chrono::seconds connected
         Desig(m_blocks_in_flight) 0,
         Desig(m_last_block_announcement) 0s,
         Desig(m_slow_chain_protected) false,
+        Desig(m_successfully_connected) false,
     };
     m_candidates.emplace_hint(m_candidates.end(), id, std::move(candidate));
 }
@@ -409,6 +410,14 @@ void EvictionManagerImpl::UpdateSlowChainProtected(NodeId id)
     }
 }
 
+void EvictionManagerImpl::UpdateSuccessfullyConnected(NodeId id)
+{
+    LOCK(m_candidates_mutex);
+    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
+        it->second.m_successfully_connected = true;
+    }
+}
+
 EvictionManager::EvictionManager()
     : m_impl(std::make_unique<EvictionManagerImpl>()) {}
 EvictionManager::~EvictionManager() = default;
@@ -500,4 +509,9 @@ std::optional<std::chrono::seconds> EvictionManager::GetLastBlockAnnounceTime(No
 void EvictionManager::UpdateSlowChainProtected(NodeId id)
 {
     m_impl->UpdateSlowChainProtected(id);
+}
+
+void EvictionManager::UpdateSuccessfullyConnected(NodeId id)
+{
+    m_impl->UpdateSuccessfullyConnected(id);
 }

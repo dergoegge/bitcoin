@@ -72,6 +72,9 @@ public:
 
     /** Set the candidates slow chain protection status to true. */
     void UpdateSlowChainProtected(NodeId id);
+
+    /** Set successfully connected status to true. */
+    void UpdateSuccessfullyConnected(NodeId id);
 };
 
 
