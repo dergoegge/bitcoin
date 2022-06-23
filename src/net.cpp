@@ -870,28 +870,22 @@ bool CConnman::AttemptToEvictConnection()
 {
     std::vector<NodeEvictionCandidate> vEvictionCandidates;
     {
-
         LOCK(m_nodes_mutex);
         for (const CNode* node : m_nodes) {
             if (node->fDisconnect)
                 continue;
-            NodeEvictionCandidate candidate{
-                Desig(id) node->GetId(),
-                Desig(m_connected) node->m_connected,
-                Desig(m_min_ping_time) node->m_min_ping_time,
-                Desig(m_last_block_time) node->m_last_block_time,
-                Desig(m_last_tx_time) node->m_last_tx_time,
-                Desig(fRelevantServices) HasAllDesirableServiceFlags(node->nServices),
-                Desig(m_relay_txs) node->m_relays_txs.load(),
-                Desig(fBloomFilter) node->m_bloom_filter_loaded.load(),
-                Desig(nKeyedNetGroup) node->nKeyedNetGroup,
-                Desig(prefer_evict) node->m_prefer_evict,
-                Desig(m_is_local) node->addr.IsLocal(),
-                Desig(m_network) node->ConnectedThroughNetwork(),
-                Desig(m_noban) node->HasPermission(NetPermissionFlags::NoBan),
-                Desig(m_conn_type) node->m_conn_type,
-            };
-            vEvictionCandidates.push_back(candidate);
+
+            auto eviction_candidate{m_evictionman.GetCandidate(node->GetId())};
+            assert(eviction_candidate);
+
+            eviction_candidate->m_min_ping_time = node->m_min_ping_time;
+            eviction_candidate->m_last_block_time = node->m_last_block_time;
+            eviction_candidate->m_last_tx_time = node->m_last_tx_time;
+            eviction_candidate->fRelevantServices = HasAllDesirableServiceFlags(node->nServices);
+            eviction_candidate->m_relay_txs = node->m_relays_txs.load();
+            eviction_candidate->fBloomFilter = node->m_bloom_filter_loaded.load();
+
+            vEvictionCandidates.push_back(*eviction_candidate);
         }
     }
     const std::optional<NodeId> node_id_to_evict = SelectNodeToEvict(std::move(vEvictionCandidates));
