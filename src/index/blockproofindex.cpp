@@ -450,6 +450,16 @@ bool BlockProofIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex)
         return error("%s failed to create proof for block %d", __func__, pindex->nHeight);
     }
 
+    {
+        std::vector<utreexo::Hash> sorted;
+        SortTargetHashes(block_proof, target_hashes, sorted);
+
+        std::tuple<uint64_t, std::vector<utreexo::Hash>> forest_state{m_forest->GetState()};
+        auto verifier{utreexo::Make(std::get<0>(forest_state), std::get<1>(forest_state))};
+
+        assert(verifier->Verify(block_proof, sorted));
+    }
+
     proof.SetProof(block_proof);
 
     size_t bytes_written = WriteProofToDisk(m_next_proof_pos, proof);
