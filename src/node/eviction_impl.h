@@ -76,6 +76,41 @@ static constexpr std::chrono::seconds MINIMUM_CONNECT_TIME{30};
  */
 void ProtectEvictionCandidatesByRatio(std::vector<NodeEvictionCandidate>& vEvictionCandidates);
 
+#define EVICTION_STAT_FIXED_UPDATE(name, stat_name, value)                      \
+    void Update##name(NodeId id) EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex)  \
+    {                                                                           \
+        LOCK(m_candidates_mutex);                                               \
+        if (const auto& it = m_candidates.find(id); it != m_candidates.end()) { \
+            it->second.stat_name = value;                                       \
+        }                                                                       \
+    }
+
+#define EVICTION_STAT_UPDATE(name, stat_name)                                      \
+    void Update##name(NodeId id, decltype(NodeEvictionCandidate::stat_name) value) \
+        EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex)                              \
+    {                                                                              \
+        LOCK(m_candidates_mutex);                                                  \
+        if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {    \
+            it->second.stat_name = value;                                          \
+        }                                                                          \
+    }
+
+#define EVICTION_STAT_GETTER(name, stat_name)                                      \
+    std::optional<decltype(NodeEvictionCandidate::stat_name)> Get##name(NodeId id) \
+        const EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex)                        \
+    {                                                                              \
+        LOCK(m_candidates_mutex);                                                  \
+        if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {    \
+            return {it->second.stat_name};                                         \
+        }                                                                          \
+        return {};                                                                 \
+    }
+
+#define EVICTION_STAT_UPDATE_AND_GETTER(name, stat_name) \
+    EVICTION_STAT_UPDATE(name, stat_name)                \
+    EVICTION_STAT_GETTER(name, stat_name)
+
+
 class EvictionManagerImpl
 {
 private:
@@ -102,40 +137,19 @@ public:
     std::tuple<std::optional<NodeId>, std::optional<NodeId>> SelectOutboundNodesToEvict(std::chrono::seconds now) const
         EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
 
-    void UpdateMinPingTime(NodeId id, std::chrono::microseconds ping_time)
-        EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
-    std::optional<std::chrono::microseconds> GetMinPingTime(NodeId id) const
-        EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
-
-    void UpdateLastBlockTime(NodeId id, std::chrono::seconds block_time)
-        EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
-    std::optional<std::chrono::seconds> GetLastBlockTime(NodeId id) const
-        EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
-
-    void UpdateLastTxTime(NodeId id, std::chrono::seconds tx_time)
-        EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
-    std::optional<std::chrono::seconds> GetLastTxTime(NodeId id) const
-        EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
-
-    void UpdateRelevantServices(NodeId id, bool has_relevant_flags)
-        EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
-
-    void UpdateLoadedBloomFilter(NodeId id, bool bloom_filter_loaded)
-        EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
-
-    void UpdateRelayTxs(NodeId id) EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
+    EVICTION_STAT_UPDATE_AND_GETTER(MinPingTime, m_min_ping_time)
+    EVICTION_STAT_UPDATE_AND_GETTER(LastBlockTime, m_last_block_time)
+    EVICTION_STAT_UPDATE_AND_GETTER(LastTxTime, m_last_tx_time)
+    EVICTION_STAT_UPDATE(RelevantServices, fRelevantServices)
+    EVICTION_STAT_UPDATE(LoadedBloomFilter, fBloomFilter)
+    EVICTION_STAT_UPDATE(RelayTxs, m_relay_txs)
+    EVICTION_STAT_UPDATE(LastBlockAnnounceTime, m_last_block_announcement)
+    EVICTION_STAT_FIXED_UPDATE(RelayTxs, m_relay_txs, true)
+    EVICTION_STAT_FIXED_UPDATE(SlowChainProtected, m_slow_chain_protected, true)
+    EVICTION_STAT_FIXED_UPDATE(SuccessfullyConnected, m_successfully_connected, true)
 
     void AddBlockInFlight(NodeId id) EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
     void RemoveBlockInFlight(NodeId id) EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
-
-    void UpdateLastBlockAnnounceTime(NodeId id, std::chrono::seconds last_block_announcement)
-        EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
-
-    void UpdateSlowChainProtected(NodeId id)
-        EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
-
-    void UpdateSuccessfullyConnected(NodeId id)
-        EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
 };
 
 #endif // BITCOIN_NODE_EVICTION_IMPL_H

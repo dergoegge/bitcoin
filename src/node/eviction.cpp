@@ -400,81 +400,6 @@ std::optional<NodeId> EvictionManagerImpl::SelectInboundNodeToEvict() const
     return ::SelectInboundNodeToEvict(std::move(candidates));
 }
 
-void EvictionManagerImpl::UpdateMinPingTime(NodeId id, std::chrono::microseconds ping_time)
-{
-    LOCK(m_candidates_mutex);
-    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
-        it->second.m_min_ping_time = std::min(it->second.m_min_ping_time, ping_time);
-    }
-}
-
-std::optional<std::chrono::microseconds> EvictionManagerImpl::GetMinPingTime(NodeId id) const
-{
-    LOCK(m_candidates_mutex);
-    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
-        return {it->second.m_min_ping_time};
-    }
-    return {};
-}
-
-void EvictionManagerImpl::UpdateLastBlockTime(NodeId id, std::chrono::seconds block_time)
-{
-    LOCK(m_candidates_mutex);
-    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
-        it->second.m_last_block_time = block_time;
-    }
-}
-
-std::optional<std::chrono::seconds> EvictionManagerImpl::GetLastBlockTime(NodeId id) const
-{
-    LOCK(m_candidates_mutex);
-    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
-        return {it->second.m_last_block_time};
-    }
-    return {};
-}
-
-void EvictionManagerImpl::UpdateLastTxTime(NodeId id, std::chrono::seconds tx_time)
-{
-    LOCK(m_candidates_mutex);
-    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
-        it->second.m_last_tx_time = tx_time;
-    }
-}
-
-std::optional<std::chrono::seconds> EvictionManagerImpl::GetLastTxTime(NodeId id) const
-{
-    LOCK(m_candidates_mutex);
-    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
-        return {it->second.m_last_tx_time};
-    }
-    return {};
-}
-
-void EvictionManagerImpl::UpdateRelevantServices(NodeId id, bool has_relevant_flags)
-{
-    LOCK(m_candidates_mutex);
-    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
-        it->second.fRelevantServices = has_relevant_flags;
-    }
-}
-
-void EvictionManagerImpl::UpdateLoadedBloomFilter(NodeId id, bool bloom_filter_loaded)
-{
-    LOCK(m_candidates_mutex);
-    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
-        it->second.fBloomFilter = bloom_filter_loaded;
-    }
-}
-
-void EvictionManagerImpl::UpdateRelayTxs(NodeId id)
-{
-    LOCK(m_candidates_mutex);
-    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
-        it->second.m_relay_txs = true;
-    }
-}
-
 void EvictionManagerImpl::AddBlockInFlight(NodeId id)
 {
     LOCK(m_candidates_mutex);
@@ -488,30 +413,6 @@ void EvictionManagerImpl::RemoveBlockInFlight(NodeId id)
     LOCK(m_candidates_mutex);
     if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
         it->second.m_blocks_in_flight--;
-    }
-}
-
-void EvictionManagerImpl::UpdateLastBlockAnnounceTime(NodeId id, std::chrono::seconds last_block_announcement)
-{
-    LOCK(m_candidates_mutex);
-    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
-        it->second.m_last_block_announcement = last_block_announcement;
-    }
-}
-
-void EvictionManagerImpl::UpdateSlowChainProtected(NodeId id)
-{
-    LOCK(m_candidates_mutex);
-    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
-        it->second.m_slow_chain_protected = true;
-    }
-}
-
-void EvictionManagerImpl::UpdateSuccessfullyConnected(NodeId id)
-{
-    LOCK(m_candidates_mutex);
-    if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
-        it->second.m_successfully_connected = true;
     }
 }
 
