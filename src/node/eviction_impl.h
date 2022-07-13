@@ -38,6 +38,30 @@ struct NodeEvictionCandidate {
     bool m_successfully_connected;
 };
 
+enum UpdateableEvictionStats {
+    MinPingTime,
+    LastBlockTime,
+    LastTxTime,
+    RelayTxs,
+    BloomFilter,
+    BlocksInFlight,
+    LastBlockAnnouncement,
+    SlowChainProtected,
+    SuccessfullyConnected,
+};
+
+template <UpdateableEvictionStats S>
+auto& GetEvictionStatReference(NodeEvictionCandidate& candidate) { assert(false); }
+template<> auto& GetEvictionStatReference<MinPingTime>(NodeEvictionCandidate& candidate) { return candidate.m_min_ping_time; }
+template<> auto& GetEvictionStatReference<LastBlockTime>(NodeEvictionCandidate& candidate) { return candidate.m_last_block_time; }
+template<> auto& GetEvictionStatReference<LastTxTime>(NodeEvictionCandidate& candidate) { return candidate.m_last_tx_time; }
+template<> auto& GetEvictionStatReference<RelayTxs>(NodeEvictionCandidate& candidate) { return candidate.m_relay_txs; }
+template<> auto& GetEvictionStatReference<BloomFilter>(NodeEvictionCandidate& candidate) { return candidate.fBloomFilter; }
+template<> auto& GetEvictionStatReference<BlocksInFlight>(NodeEvictionCandidate& candidate) { return candidate.m_blocks_in_flight; }
+template<> auto& GetEvictionStatReference<LastBlockAnnouncement>(NodeEvictionCandidate& candidate) { return candidate.m_last_block_announcement; }
+template<> auto& GetEvictionStatReference<SlowChainProtected>(NodeEvictionCandidate& candidate) { return candidate.m_slow_chain_protected; }
+template<> auto& GetEvictionStatReference<SuccessfullyConnected>(NodeEvictionCandidate& candidate) { return candidate.m_successfully_connected; }
+
 /** Minimum time an outbound-peer-eviction candidate must be connected for, in order to evict */
 static constexpr std::chrono::seconds MINIMUM_CONNECT_TIME{30};
 
@@ -137,7 +161,17 @@ public:
     std::tuple<std::optional<NodeId>, std::optional<NodeId>> SelectOutboundNodesToEvict(std::chrono::seconds now) const
         EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex);
 
-    EVICTION_STAT_UPDATE_AND_GETTER(MinPingTime, m_min_ping_time)
+    template <UpdateableEvictionStats S, typename V>
+    void Update(NodeId id, V value) EXCLUSIVE_LOCKS_REQUIRED(!m_candidates_mutex)
+    {
+        LOCK(m_candidates_mutex);
+        if (const auto& it = m_candidates.find(id); it != m_candidates.end()) {
+            auto& stat{GetEvictionStatReference<S>(it->second)};
+            stat = value;
+        }
+    }
+
+    EVICTION_STAT_GETTER(MinPingTime, m_min_ping_time)
     EVICTION_STAT_UPDATE_AND_GETTER(LastBlockTime, m_last_block_time)
     EVICTION_STAT_UPDATE_AND_GETTER(LastTxTime, m_last_tx_time)
     EVICTION_STAT_UPDATE(RelevantServices, fRelevantServices)

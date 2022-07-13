@@ -458,7 +458,7 @@ std::optional<NodeId> EvictionManager::SelectInboundNodeToEvict() const
 
 void EvictionManager::UpdateMinPingTime(NodeId id, std::chrono::microseconds ping_time)
 {
-    m_impl->UpdateMinPingTime(id, ping_time);
+    m_impl->Update<UpdateableEvictionStats::MinPingTime, std::chrono::microseconds>(id, ping_time);
 }
 
 std::optional<std::chrono::microseconds> EvictionManager::GetMinPingTime(NodeId id) const
