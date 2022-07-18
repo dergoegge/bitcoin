@@ -2449,7 +2449,15 @@ void CConnman::StopNodes()
 void CConnman::DeleteNode(CNode* pnode)
 {
     assert(pnode);
-    m_msgproc->FinalizeNode(*pnode);
+    int misbehavior{m_msgproc->FinalizeNode(pnode->GetId())};
+
+    if (pnode->fSuccessfullyConnected && misbehavior == 0 &&
+        !pnode->IsBlockOnlyConn() && !pnode->IsInboundConn()) {
+        // Only change visible addrman state for full outbound peers.  We don't
+        // call Connected() for feeler connections since they don't have
+        // fSuccessfullyConnected set.
+        addrman.Connected(pnode->addr);
+    }
     delete pnode;
 }
 
