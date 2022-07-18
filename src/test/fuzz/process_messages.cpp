@@ -40,15 +40,12 @@ FUZZ_TARGET_INIT(process_messages, initialize_process_messages)
     SetMockTime(1610000000); // any time to successfully reset ibd
     chainstate.ResetIbd();
 
-    std::vector<CNode*> peers;
+    std::vector<std::shared_ptr<CNode>> peers;
     const auto num_peers_to_add = fuzzed_data_provider.ConsumeIntegralInRange(1, 3);
     for (int i = 0; i < num_peers_to_add; ++i) {
-        peers.push_back(ConsumeNodeAsUniquePtr(fuzzed_data_provider, i).release());
-        CNode& p2p_node = *peers.back();
-
-        FillNode(fuzzed_data_provider, connman, p2p_node);
-
-        connman.AddTestNode(p2p_node);
+        peers.push_back(ConsumeNodeAsSharedPtr(fuzzed_data_provider, i));
+        FillNode(fuzzed_data_provider, connman, *peers.back());
+        connman.AddTestNode(peers.back());
     }
 
     LIMITED_WHILE(fuzzed_data_provider.ConsumeBool(), 10000) {

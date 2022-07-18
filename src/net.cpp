@@ -362,9 +362,9 @@ bool IsLocal(const CService& addr)
 CNode* CConnman::FindNode(const CNetAddr& ip)
 {
     LOCK(m_nodes_mutex);
-    for (CNode* pnode : m_nodes) {
+    for (std::shared_ptr<CNode> pnode : m_nodes) {
       if (static_cast<CNetAddr>(pnode->addr) == ip) {
-            return pnode;
+            return pnode.get();
         }
     }
     return nullptr;
@@ -373,9 +373,9 @@ CNode* CConnman::FindNode(const CNetAddr& ip)
 CNode* CConnman::FindNode(const CSubNet& subNet)
 {
     LOCK(m_nodes_mutex);
-    for (CNode* pnode : m_nodes) {
+    for (std::shared_ptr<CNode> pnode : m_nodes) {
         if (subNet.Match(static_cast<CNetAddr>(pnode->addr))) {
-            return pnode;
+            return pnode.get();
         }
     }
     return nullptr;
@@ -384,9 +384,9 @@ CNode* CConnman::FindNode(const CSubNet& subNet)
 CNode* CConnman::FindNode(const std::string& addrName)
 {
     LOCK(m_nodes_mutex);
-    for (CNode* pnode : m_nodes) {
+    for (std::shared_ptr<CNode> pnode : m_nodes) {
         if (pnode->m_addr_name == addrName) {
-            return pnode;
+            return pnode.get();
         }
     }
     return nullptr;
@@ -395,9 +395,9 @@ CNode* CConnman::FindNode(const std::string& addrName)
 CNode* CConnman::FindNode(const CService& addr)
 {
     LOCK(m_nodes_mutex);
-    for (CNode* pnode : m_nodes) {
+    for (std::shared_ptr<CNode> pnode : m_nodes) {
         if (static_cast<CService>(pnode->addr) == addr) {
-            return pnode;
+            return pnode.get();
         }
     }
     return nullptr;
@@ -411,7 +411,7 @@ bool CConnman::AlreadyConnectedToAddress(const CAddress& addr)
 bool CConnman::CheckIncomingNonce(uint64_t nonce)
 {
     LOCK(m_nodes_mutex);
-    for (const CNode* pnode : m_nodes) {
+    for (std::shared_ptr<const CNode> pnode : m_nodes) {
         if (!pnode->fSuccessfullyConnected && !pnode->IsInboundConn() && pnode->GetLocalNonce() == nonce)
             return false;
     }
@@ -557,7 +557,6 @@ CNode* CConnman::ConnectNode(CAddress addrConnect, const char *pszDest, bool fCo
                              conn_type,
                              /*inbound_onion=*/false,
                              CNodeOptions{ .i2p_sam_session = std::move(i2p_transient_session) });
-    pnode->AddRef();
 
     // We're making a new connection, harvest entropy from the time (and our peer count)
     RandAddEvent((uint32_t)id);
@@ -877,7 +876,7 @@ bool CConnman::AttemptToEvictConnection()
     {
 
         LOCK(m_nodes_mutex);
-        for (const CNode* node : m_nodes) {
+        for (std::shared_ptr<const CNode> node : m_nodes) {
             if (node->fDisconnect)
                 continue;
             NodeEvictionCandidate candidate{
@@ -904,7 +903,7 @@ bool CConnman::AttemptToEvictConnection()
         return false;
     }
     LOCK(m_nodes_mutex);
-    for (CNode* pnode : m_nodes) {
+    for (std::shared_ptr<CNode> pnode : m_nodes) {
         if (pnode->GetId() == *node_id_to_evict) {
             LogPrint(BCLog::NET, "selected %s connection for eviction peer=%d; disconnecting\n", pnode->ConnectionTypeAsString(), pnode->GetId());
             pnode->fDisconnect = true;
@@ -961,7 +960,7 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
 
     {
         LOCK(m_nodes_mutex);
-        for (const CNode* pnode : m_nodes) {
+        for (std::shared_ptr<const CNode> pnode : m_nodes) {
             if (pnode->IsInboundConn()) nInbound++;
         }
     }
@@ -1032,14 +1031,14 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
                                .permission_flags = permission_flags,
                                .prefer_evict = discouraged,
                              });
-    pnode->AddRef();
+
     m_msgproc->InitializeNode(*pnode, nodeServices);
 
     LogPrint(BCLog::NET, "connection from %s accepted\n", addr.ToString());
 
     {
         LOCK(m_nodes_mutex);
-        m_nodes.push_back(pnode);
+        m_nodes.push_back(std::shared_ptr<CNode>(pnode));
     }
 
     // We received a new connection, harvest entropy from the time (and our peer count)
@@ -1069,7 +1068,7 @@ bool CConnman::AddConnection(const std::string& address, ConnectionType conn_typ
 
     // Count existing connections
     int existing_connections = WITH_LOCK(m_nodes_mutex,
-                                         return std::count_if(m_nodes.begin(), m_nodes.end(), [conn_type](CNode* node) { return node->m_conn_type == conn_type; }););
+                                         return std::count_if(m_nodes.begin(), m_nodes.end(), [conn_type](std::shared_ptr<CNode> node) { return node->m_conn_type == conn_type; }););
 
     // Max connections of specified type already exist
     if (max_connections != std::nullopt && existing_connections >= max_connections) return false;
@@ -1089,7 +1088,7 @@ void CConnman::DisconnectNodes()
 
         if (!fNetworkActive) {
             // Disconnect any connected nodes
-            for (CNode* pnode : m_nodes) {
+            for (std::shared_ptr<CNode> pnode : m_nodes) {
                 if (!pnode->fDisconnect) {
                     LogPrint(BCLog::NET, "Network not active, dropping peer=%d\n", pnode->GetId());
                     pnode->fDisconnect = true;
@@ -1098,8 +1097,8 @@ void CConnman::DisconnectNodes()
         }
 
         // Disconnect unused nodes
-        std::vector<CNode*> nodes_copy = m_nodes;
-        for (CNode* pnode : nodes_copy)
+        std::vector<std::shared_ptr<CNode>> nodes_copy = m_nodes;
+        for (std::shared_ptr<CNode> pnode : nodes_copy)
         {
             if (pnode->fDisconnect)
             {
@@ -1113,20 +1112,29 @@ void CConnman::DisconnectNodes()
                 pnode->CloseSocketDisconnect();
 
                 // hold in disconnected pool until all refs are released
-                pnode->Release();
-                m_nodes_disconnected.push_back(pnode);
+                m_nodes_disconnected.push_back(DisconnectedNode{
+                    .node_ref = pnode,
+                    .id = pnode->GetId(),
+                    .successfully_connected = pnode->fSuccessfullyConnected,
+                    .conn_type = pnode->m_conn_type,
+                    .addr = pnode->addr,
+                });
             }
         }
     }
+
     {
         // Delete disconnected nodes
-        std::list<CNode*> nodes_disconnected_copy = m_nodes_disconnected;
-        for (CNode* pnode : nodes_disconnected_copy)
-        {
-            // Destroy the object only after other threads have stopped using it.
-            if (pnode->GetRefCount() <= 0) {
-                m_nodes_disconnected.remove(pnode);
-                DeleteNode(pnode);
+        auto it{m_nodes_disconnected.begin()};
+        while (it != m_nodes_disconnected.end()) {
+            const DisconnectedNode& node{*it};
+
+            if (node.node_ref.expired()) {
+                // All other threads dropped the reference to this node
+                DeleteNode(node);
+                it = m_nodes_disconnected.erase(it);
+            } else {
+                ++it;
             }
         }
     }
@@ -1185,7 +1193,7 @@ bool CConnman::InactivityCheck(const CNode& node) const
     return false;
 }
 
-Sock::EventsPerSock CConnman::GenerateWaitSockets(Span<CNode* const> nodes)
+Sock::EventsPerSock CConnman::GenerateWaitSockets(std::vector<std::shared_ptr<CNode>> nodes)
 {
     Sock::EventsPerSock events_per_sock;
 
@@ -1193,7 +1201,7 @@ Sock::EventsPerSock CConnman::GenerateWaitSockets(Span<CNode* const> nodes)
         events_per_sock.emplace(hListenSocket.sock, Sock::Events{Sock::RECV});
     }
 
-    for (CNode* pnode : nodes) {
+    for (std::shared_ptr<CNode> pnode : nodes) {
         // Implement the following logic:
         // * If there is data to send, select() for sending data. As this only
         //   happens when optimistic write failed, we choose to first drain the
@@ -1258,12 +1266,12 @@ void CConnman::SocketHandler()
     SocketHandlerListening(events_per_sock);
 }
 
-void CConnman::SocketHandlerConnected(const std::vector<CNode*>& nodes,
+void CConnman::SocketHandlerConnected(const std::vector<std::shared_ptr<CNode>>& nodes,
                                       const Sock::EventsPerSock& events_per_sock)
 {
     AssertLockNotHeld(m_total_bytes_sent_mutex);
 
-    for (CNode* pnode : nodes) {
+    for (std::shared_ptr<CNode> pnode : nodes) {
         if (interruptNet)
             return;
 
@@ -1439,7 +1447,7 @@ void CConnman::ThreadDNSAddressSeed()
                     int nRelevant = 0;
                     {
                         LOCK(m_nodes_mutex);
-                        for (const CNode* pnode : m_nodes) {
+                        for (std::shared_ptr<const CNode> pnode : m_nodes) {
                             if (pnode->fSuccessfullyConnected && pnode->IsFullOutboundConn()) ++nRelevant;
                         }
                     }
@@ -1553,7 +1561,7 @@ int CConnman::GetExtraFullOutboundCount() const
     int full_outbound_peers = 0;
     {
         LOCK(m_nodes_mutex);
-        for (const CNode* pnode : m_nodes) {
+        for (std::shared_ptr<const CNode> pnode : m_nodes) {
             if (pnode->fSuccessfullyConnected && !pnode->fDisconnect && pnode->IsFullOutboundConn()) {
                 ++full_outbound_peers;
             }
@@ -1567,7 +1575,7 @@ int CConnman::GetExtraBlockRelayCount() const
     int block_relay_peers = 0;
     {
         LOCK(m_nodes_mutex);
-        for (const CNode* pnode : m_nodes) {
+        for (std::shared_ptr<const CNode> pnode : m_nodes) {
             if (pnode->fSuccessfullyConnected && !pnode->fDisconnect && pnode->IsBlockOnlyConn()) {
                 ++block_relay_peers;
             }
@@ -1666,7 +1674,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
 
         {
             LOCK(m_nodes_mutex);
-            for (const CNode* pnode : m_nodes) {
+            for (std::shared_ptr<const CNode> pnode : m_nodes) {
                 if (pnode->IsFullOutboundConn()) nOutboundFullRelay++;
                 if (pnode->IsBlockOnlyConn()) nOutboundBlockRelay++;
 
@@ -1851,7 +1859,7 @@ std::vector<CAddress> CConnman::GetCurrentBlockRelayOnlyConns() const
 {
     std::vector<CAddress> ret;
     LOCK(m_nodes_mutex);
-    for (const CNode* pnode : m_nodes) {
+    for (std::shared_ptr<const CNode> pnode : m_nodes) {
         if (pnode->IsBlockOnlyConn()) {
             ret.push_back(pnode->addr);
         }
@@ -1877,7 +1885,7 @@ std::vector<AddedNodeInfo> CConnman::GetAddedNodeInfo() const
     std::map<std::string, std::pair<bool, CService>> mapConnectedByName;
     {
         LOCK(m_nodes_mutex);
-        for (const CNode* pnode : m_nodes) {
+        for (std::shared_ptr<const CNode> pnode : m_nodes) {
             if (pnode->addr.IsValid()) {
                 mapConnected[pnode->addr] = pnode->IsInboundConn();
             }
@@ -1974,7 +1982,7 @@ void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFai
     m_msgproc->InitializeNode(*pnode, nLocalServices);
     {
         LOCK(m_nodes_mutex);
-        m_nodes.push_back(pnode);
+        m_nodes.push_back(std::shared_ptr<CNode>(pnode));
     }
 }
 
@@ -1991,19 +1999,19 @@ void CConnman::ThreadMessageHandler()
             // consecutive connections in the m_nodes list.
             const NodesSnapshot snap{*this, /*shuffle=*/true};
 
-            for (CNode* pnode : snap.Nodes()) {
+            for (std::shared_ptr<CNode> pnode : snap.Nodes()) {
                 if (pnode->fDisconnect)
                     continue;
 
                 // Receive messages
-                bool fMoreNodeWork = m_msgproc->ProcessMessages(pnode, flagInterruptMsgProc);
+                bool fMoreNodeWork = m_msgproc->ProcessMessages(pnode.get(), flagInterruptMsgProc);
                 fMoreWork |= (fMoreNodeWork && !pnode->fPauseSend);
                 if (flagInterruptMsgProc)
                     return;
                 // Send messages
                 {
                     LOCK(pnode->cs_sendProcessing);
-                    m_msgproc->SendMessages(pnode);
+                    m_msgproc->SendMessages(pnode.get());
                 }
 
                 if (flagInterruptMsgProc)
@@ -2430,15 +2438,21 @@ void CConnman::StopNodes()
     }
 
     // Delete peer connections.
-    std::vector<CNode*> nodes;
+    std::vector<std::shared_ptr<CNode>> nodes;
     WITH_LOCK(m_nodes_mutex, nodes.swap(m_nodes));
-    for (CNode* pnode : nodes) {
+    for (std::shared_ptr<CNode> pnode : nodes) {
         pnode->CloseSocketDisconnect();
-        DeleteNode(pnode);
+        DeleteNode(DisconnectedNode{
+            .node_ref = pnode,
+            .id = pnode->GetId(),
+            .successfully_connected = pnode->fSuccessfullyConnected,
+            .conn_type = pnode->m_conn_type,
+            .addr = pnode->addr,
+        });
     }
 
-    for (CNode* pnode : m_nodes_disconnected) {
-        DeleteNode(pnode);
+    for (const DisconnectedNode& node : m_nodes_disconnected) {
+        DeleteNode(node);
     }
     m_nodes_disconnected.clear();
     vhListenSocket.clear();
@@ -2446,19 +2460,17 @@ void CConnman::StopNodes()
     semAddnode.reset();
 }
 
-void CConnman::DeleteNode(CNode* pnode)
+void CConnman::DeleteNode(const DisconnectedNode& node)
 {
-    assert(pnode);
-    int misbehavior{m_msgproc->FinalizeNode(pnode->GetId())};
+    int misbehavior{m_msgproc->FinalizeNode(node.id)};
 
-    if (pnode->fSuccessfullyConnected && misbehavior == 0 &&
-        !pnode->IsBlockOnlyConn() && !pnode->IsInboundConn()) {
+    if (node.successfully_connected && misbehavior == 0 &&
+        node.conn_type != ConnectionType::BLOCK_RELAY && node.conn_type != ConnectionType::INBOUND) {
         // Only change visible addrman state for full outbound peers.  We don't
         // call Connected() for feeler connections since they don't have
         // fSuccessfullyConnected set.
-        addrman.Connected(pnode->addr);
+        addrman.Connected(node.addr);
     }
-    delete pnode;
 }
 
 CConnman::~CConnman()
@@ -2566,7 +2578,7 @@ void CConnman::GetNodeStats(std::vector<CNodeStats>& vstats) const
     vstats.clear();
     LOCK(m_nodes_mutex);
     vstats.reserve(m_nodes.size());
-    for (CNode* pnode : m_nodes) {
+    for (std::shared_ptr<CNode> pnode : m_nodes) {
         vstats.emplace_back();
         pnode->CopyStats(vstats.back());
         vstats.back().m_mapped_as = m_netgroupman.GetMappedAS(pnode->addr);
@@ -2588,7 +2600,7 @@ bool CConnman::DisconnectNode(const CSubNet& subnet)
 {
     bool disconnected = false;
     LOCK(m_nodes_mutex);
-    for (CNode* pnode : m_nodes) {
+    for (std::shared_ptr<CNode> pnode : m_nodes) {
         if (subnet.Match(pnode->addr)) {
             LogPrint(BCLog::NET, "disconnect by subnet%s matched peer=%d; disconnecting\n", (fLogIPs ? strprintf("=%s", subnet.ToString()) : ""), pnode->GetId());
             pnode->fDisconnect = true;
@@ -2606,7 +2618,7 @@ bool CConnman::DisconnectNode(const CNetAddr& addr)
 bool CConnman::DisconnectNode(NodeId id)
 {
     LOCK(m_nodes_mutex);
-    for(CNode* pnode : m_nodes) {
+    for (std::shared_ptr<CNode> pnode : m_nodes) {
         if (id == pnode->GetId()) {
             LogPrint(BCLog::NET, "disconnect by id peer=%d; disconnecting\n", pnode->GetId());
             pnode->fDisconnect = true;
@@ -2815,7 +2827,7 @@ bool CConnman::ForNode(NodeId id, std::function<bool(CNode* pnode)> func)
     LOCK(m_nodes_mutex);
     for (auto&& pnode : m_nodes) {
         if(pnode->GetId() == id) {
-            found = pnode;
+            found = pnode.get();
             break;
         }
     }

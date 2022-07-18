@@ -43,15 +43,6 @@ FUZZ_TARGET_INIT(net, initialize_net)
                 node.CopyStats(stats);
             },
             [&] {
-                const CNode* add_ref_node = node.AddRef();
-                assert(add_ref_node == &node);
-            },
-            [&] {
-                if (node.GetRefCount() > 0) {
-                    node.Release();
-                }
-            },
-            [&] {
                 const std::optional<CService> service_opt = ConsumeDeserializable<CService>(fuzzed_data_provider);
                 if (!service_opt) {
                     return;
@@ -68,8 +59,6 @@ FUZZ_TARGET_INIT(net, initialize_net)
     (void)node.GetAddrLocal();
     (void)node.GetId();
     (void)node.GetLocalNonce();
-    const int ref_count = node.GetRefCount();
-    assert(ref_count >= 0);
     (void)node.GetCommonVersion();
 
     const NetPermissionFlags net_permission_flags = ConsumeWeakEnum(fuzzed_data_provider, ALL_NET_PERMISSION_FLAGS);

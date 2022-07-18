@@ -77,10 +77,10 @@ void fuzz_target(FuzzBufferType buffer, const std::string& LIMIT_TO_MESSAGE_TYPE
     if (!LIMIT_TO_MESSAGE_TYPE.empty() && random_message_type != LIMIT_TO_MESSAGE_TYPE) {
         return;
     }
-    CNode& p2p_node = *ConsumeNodeAsUniquePtr(fuzzed_data_provider).release();
+    auto p2p_node{ConsumeNodeAsSharedPtr(fuzzed_data_provider)};
 
     connman.AddTestNode(p2p_node);
-    FillNode(fuzzed_data_provider, connman, p2p_node);
+    FillNode(fuzzed_data_provider, connman, *p2p_node);
 
     const auto mock_time = ConsumeTime(fuzzed_data_provider);
     SetMockTime(mock_time);
@@ -88,13 +88,13 @@ void fuzz_target(FuzzBufferType buffer, const std::string& LIMIT_TO_MESSAGE_TYPE
     // fuzzed_data_provider is fully consumed after this call, don't use it
     CDataStream random_bytes_data_stream{fuzzed_data_provider.ConsumeRemainingBytes<unsigned char>(), SER_NETWORK, PROTOCOL_VERSION};
     try {
-        g_setup->m_node.peerman->ProcessMessage(p2p_node, random_message_type, random_bytes_data_stream,
+        g_setup->m_node.peerman->ProcessMessage(*p2p_node, random_message_type, random_bytes_data_stream,
                                                 GetTime<std::chrono::microseconds>(), std::atomic<bool>{false});
     } catch (const std::ios_base::failure&) {
     }
     {
-        LOCK(p2p_node.cs_sendProcessing);
-        g_setup->m_node.peerman->SendMessages(&p2p_node);
+        LOCK(p2p_node->cs_sendProcessing);
+        g_setup->m_node.peerman->SendMessages(p2p_node.get());
     }
     SyncWithValidationInterfaceQueue();
     g_setup->m_node.connman->StopNodes();

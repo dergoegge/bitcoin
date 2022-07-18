@@ -219,6 +219,15 @@ public:
     ConnectionType m_conn_type;
 };
 
+struct DisconnectedNode {
+    const std::weak_ptr<CNode> node_ref;
+
+    const NodeId id;
+    const bool successfully_connected;
+    const ConnectionType conn_type;
+    const CAddress addr;
+};
+
 
 /** Transport protocol agnostic message container.
  * Ideally it should only contain receive time, payload,
@@ -410,7 +419,6 @@ public:
     // next time DisconnectNodes() runs
     std::atomic_bool fDisconnect{false};
     CSemaphoreGrant grantOutbound;
-    std::atomic<int> nRefCount{0};
 
     const uint64_t nKeyedNetGroup;
     std::atomic_bool fPauseRecv{false};
@@ -541,12 +549,6 @@ public:
         return nLocalHostNonce;
     }
 
-    int GetRefCount() const
-    {
-        assert(nRefCount >= 0);
-        return nRefCount;
-    }
-
     /**
      * Receive bytes from the buffer and deserialize them into messages.
      *
@@ -571,17 +573,6 @@ public:
     CService GetAddrLocal() const EXCLUSIVE_LOCKS_REQUIRED(!m_addr_local_mutex);
     //! May not be called more than once
     void SetAddrLocal(const CService& addrLocalIn) EXCLUSIVE_LOCKS_REQUIRED(!m_addr_local_mutex);
-
-    CNode* AddRef()
-    {
-        nRefCount++;
-        return this;
-    }
-
-    void Release()
-    {
-        nRefCount--;
-    }
 
     void CloseSocketDisconnect() EXCLUSIVE_LOCKS_REQUIRED(!m_sock_mutex);
 
@@ -755,8 +746,8 @@ public:
     {
         LOCK(m_nodes_mutex);
         for (auto&& node : m_nodes) {
-            if (NodeFullyConnected(node))
-                func(node);
+            if (NodeFullyConnected(node.get()))
+                func(node.get());
         }
     };
 
@@ -764,8 +755,8 @@ public:
     {
         LOCK(m_nodes_mutex);
         for (auto&& node : m_nodes) {
-            if (NodeFullyConnected(node))
-                func(node);
+            if (NodeFullyConnected(node.get()))
+                func(node.get());
         }
     };
 
@@ -916,7 +907,7 @@ private:
      * @param[in] nodes Select from these nodes' sockets.
      * @return sockets to check for readiness
      */
-    Sock::EventsPerSock GenerateWaitSockets(Span<CNode* const> nodes);
+    Sock::EventsPerSock GenerateWaitSockets(std::vector<std::shared_ptr<CNode>> nodes);
 
     /**
      * Check connected and listening sockets for IO readiness and process them accordingly.
@@ -928,7 +919,7 @@ private:
      * @param[in] nodes Nodes to process. The socket of each node is checked against `what`.
      * @param[in] events_per_sock Sockets that are ready for IO.
      */
-    void SocketHandlerConnected(const std::vector<CNode*>& nodes,
+    void SocketHandlerConnected(const std::vector<std::shared_ptr<CNode>>& nodes,
                                 const Sock::EventsPerSock& events_per_sock)
         EXCLUSIVE_LOCKS_REQUIRED(!m_total_bytes_sent_mutex, !mutexMsgProc);
 
@@ -958,7 +949,7 @@ private:
     CNode* ConnectNode(CAddress addrConnect, const char *pszDest, bool fCountFailure, ConnectionType conn_type);
     void AddWhitelistPermissionFlags(NetPermissionFlags& flags, const CNetAddr &addr) const;
 
-    void DeleteNode(CNode* pnode);
+    void DeleteNode(const DisconnectedNode& node);
 
     NodeId GetNewNodeId();
 
@@ -1006,8 +997,8 @@ private:
     Mutex m_addr_fetches_mutex;
     std::vector<std::string> m_added_nodes GUARDED_BY(m_added_nodes_mutex);
     mutable Mutex m_added_nodes_mutex;
-    std::vector<CNode*> m_nodes GUARDED_BY(m_nodes_mutex);
-    std::list<CNode*> m_nodes_disconnected;
+    std::vector<std::shared_ptr<CNode>> m_nodes GUARDED_BY(m_nodes_mutex);
+    std::list<DisconnectedNode> m_nodes_disconnected;
     mutable RecursiveMutex m_nodes_mutex;
     std::atomic<NodeId> nLastNodeId{0};
     unsigned int nPrevNodeCount{0};
@@ -1138,29 +1129,21 @@ private:
             {
                 LOCK(connman.m_nodes_mutex);
                 m_nodes_copy = connman.m_nodes;
-                for (auto& node : m_nodes_copy) {
-                    node->AddRef();
-                }
             }
             if (shuffle) {
                 Shuffle(m_nodes_copy.begin(), m_nodes_copy.end(), FastRandomContext{});
             }
         }
 
-        ~NodesSnapshot()
-        {
-            for (auto& node : m_nodes_copy) {
-                node->Release();
-            }
-        }
+        ~NodesSnapshot() {}
 
-        const std::vector<CNode*>& Nodes() const
+        const std::vector<std::shared_ptr<CNode>>& Nodes() const
         {
             return m_nodes_copy;
         }
 
     private:
-        std::vector<CNode*> m_nodes_copy;
+        std::vector<std::shared_ptr<CNode>> m_nodes_copy;
     };
 
     friend struct CConnmanTest;
