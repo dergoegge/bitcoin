@@ -30,7 +30,7 @@ static TransactionError HandleATMPError(const TxValidationState& state, std::str
     }
 }
 
-TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee, bool relay, bool wait_callback)
+TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee, bool relay, bool wait_callback, bool dandelion)
 {
     // BroadcastTransaction can be called by either sendrawtransaction RPC or the wallet.
     // chainman, mempool and peerman are initialized before the RPC server and wallet are started
@@ -67,6 +67,11 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
             // wtxid) as this transaction. Use the mempool's wtxid for reannouncement.
             wtxid = mempool_tx->GetWitnessHash();
         } else {
+            if (relay && dandelion) {
+                node.peerman->DandelionBroadcast(tx);
+                return TransactionError::OK;
+            }
+
             // Transaction is not already in the mempool.
             if (max_tx_fee > 0) {
                 // First, call ATMP with test_accept and check the fee. If ATMP
