@@ -19,6 +19,7 @@
 #include <netbase.h>
 #include <netmessagemaker.h>
 #include <node/blockstorage.h>
+#include <node/stempool.h>
 #include <policy/fees.h>
 #include <policy/policy.h>
 #include <policy/settings.h>
@@ -515,6 +516,7 @@ public:
     bool IgnoresIncomingTxs() override { return m_ignore_incoming_txs; }
     void SendPings() override EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);
     void RelayTransaction(const uint256& txid, const uint256& wtxid) override EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);
+    void DandelionBroadcast(const CTransactionRef& tx) override;
     void SetBestHeight(int height) override { m_best_height = height; };
     void UnitTestMisbehaving(NodeId peer_id, int howmuch) override EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex) { Misbehaving(*Assert(GetPeerRef(peer_id)), howmuch, ""); };
     void ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
@@ -619,6 +621,8 @@ private:
 
     /** Send `addr` messages on a regular schedule. */
     void MaybeSendAddr(CNode& node, Peer& peer, std::chrono::microseconds current_time);
+
+    void MaybeSendDandelionTxs(const CNode& node, Peer& peer);
 
     /** Relay (gossip) an address to a few randomly chosen nodes.
      *
@@ -834,6 +838,8 @@ private:
 
     /** Storage for orphan information */
     TxOrphanage m_orphanage;
+
+    DandelionStempool m_stempool;
 
     void AddToCompactExtraTransactions(const CTransactionRef& tx) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans);
 
@@ -1898,6 +1904,10 @@ void PeerManagerImpl::SendPings()
 
 void PeerManagerImpl::RelayTransaction(const uint256& txid, const uint256& wtxid)
 {
+    if (m_stempool.Remove(wtxid)) {
+        LogPrintLevel(BCLog::MEMPOOL, BCLog::Level::Debug, "transaction (%s) removed from stempool\n", wtxid.ToString());
+    }
+
     LOCK(m_peer_mutex);
     for(auto& it : m_peer_map) {
         Peer& peer = *it.second;
@@ -1910,6 +1920,11 @@ void PeerManagerImpl::RelayTransaction(const uint256& txid, const uint256& wtxid
             tx_relay->m_tx_inventory_to_send.insert(hash);
         }
     };
+}
+
+void PeerManagerImpl::DandelionBroadcast(const CTransactionRef& tx)
+{
+    m_stempool.Add(tx);
 }
 
 void PeerManagerImpl::RelayAddress(NodeId originator,
@@ -2132,6 +2147,11 @@ CTransactionRef PeerManagerImpl::FindTxForGetData(const CNode& peer, const GenTx
             auto mi = mapRelay.find(gtxid.GetHash());
             if (mi != mapRelay.end()) return mi->second;
         }
+    }
+
+    if (gtxid.IsWtxid()) {
+        const CTransactionRef stempool_tx{m_stempool.Get(gtxid.GetHash(), peer.GetId())};
+        if (stempool_tx) return stempool_tx;
     }
 
     return {};
@@ -3562,6 +3582,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             return;
         }
 
+        // TODO: stempool package accept.
+
         const MempoolAcceptResult result = m_chainman.ProcessTransaction(ptx);
         const TxValidationState& state = result.m_state;
 
@@ -4732,6 +4754,24 @@ void PeerManagerImpl::MaybeSendAddr(CNode& node, Peer& peer, std::chrono::micros
     }
 }
 
+void PeerManagerImpl::MaybeSendDandelionTxs(const CNode& node, Peer& peer)
+{
+    if (!node.IsFullOutboundConn()) return;
+    auto tx_relay = peer.GetTxRelay();
+    if (!tx_relay) return;
+    if (!peer.m_wtxid_relay) return;
+
+    StempoolBroadcastResult result = m_stempool.GetBroadcastCandidates();
+
+    for (const CTransactionRef& tx : result.broadcast) {
+        LOCK(tx_relay->m_tx_inventory_mutex);
+        if (!tx_relay->m_tx_inventory_known_filter.contains(tx->GetWitnessHash())) {
+            tx_relay->m_tx_inventory_to_send.insert(tx->GetWitnessHash());
+            m_stempool.Broadcast(tx->GetWitnessHash(), peer.m_id);
+        }
+    }
+}
+
 void PeerManagerImpl::MaybeSendFeefilter(CNode& pto, Peer& peer, std::chrono::microseconds current_time)
 {
     if (m_ignore_incoming_txs) return;
@@ -4852,6 +4892,8 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
     if (pto->fDisconnect) return true;
 
     MaybeSendAddr(*pto, *peer, current_time);
+
+    MaybeSendDandelionTxs(*pto, *peer);
 
     {
         LOCK(cs_main);
@@ -5144,18 +5186,29 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                         if (tx_relay->m_tx_inventory_known_filter.contains(hash)) {
                             continue;
                         }
-                        // Not in the mempool anymore? don't bother sending it.
-                        auto txinfo = m_mempool.info(ToGenTxid(inv));
-                        if (!txinfo.tx) {
-                            continue;
+
+                        // Relay from the stempool if possible, otherwise try
+                        // the mempool.
+                        CTransactionRef tx{m_stempool.Get(hash, pto->GetId())};
+                        if (!tx) {
+                            // Not in the mempool anymore? don't bother sending it.
+                            auto txinfo = m_mempool.info(ToGenTxid(inv));
+                            if (!txinfo.tx) {
+                                continue;
+                            }
+
+                            // Peer told you to not send transactions at that feerate? Don't bother sending it.
+                            if (txinfo.fee < filterrate.GetFee(txinfo.vsize)) {
+                                continue;
+                            }
+
+                            tx = txinfo.tx;
                         }
-                        auto txid = txinfo.tx->GetHash();
-                        auto wtxid = txinfo.tx->GetWitnessHash();
-                        // Peer told you to not send transactions at that feerate? Don't bother sending it.
-                        if (txinfo.fee < filterrate.GetFee(txinfo.vsize)) {
-                            continue;
-                        }
-                        if (tx_relay->m_bloom_filter && !tx_relay->m_bloom_filter->IsRelevantAndUpdate(*txinfo.tx)) continue;
+
+                        auto txid = tx->GetHash();
+                        auto wtxid = tx->GetWitnessHash();
+
+                        if (tx_relay->m_bloom_filter && !tx_relay->m_bloom_filter->IsRelevantAndUpdate(*tx)) continue;
                         // Send
                         State(pto->GetId())->m_recently_announced_invs.insert(hash);
                         vInv.push_back(inv);
@@ -5168,7 +5221,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                                 g_relay_expiration.pop_front();
                             }
 
-                            auto ret = mapRelay.emplace(txid, std::move(txinfo.tx));
+                            auto ret = mapRelay.emplace(txid, std::move(tx));
                             if (ret.second) {
                                 g_relay_expiration.emplace_back(current_time + RELAY_TX_CACHE_TIME, ret.first);
                             }

@@ -206,6 +206,7 @@ BITCOIN_CORE_H = \
   node/miner.h \
   node/minisketchwrapper.h \
   node/psbt.h \
+  node/stempool.h \
   node/transaction.h \
   node/utxo_snapshot.h \
   node/validation_cache_args.h \
@@ -391,6 +392,7 @@ libbitcoin_node_a_SOURCES = \
   node/miner.cpp \
   node/minisketchwrapper.cpp \
   node/psbt.cpp \
+  node/stempool.cpp \
   node/transaction.cpp \
   node/validation_cache_args.cpp \
   noui.cpp \

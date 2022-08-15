@@ -66,6 +66,9 @@ public:
     /** Relay transaction to all peers. */
     virtual void RelayTransaction(const uint256& txid, const uint256& wtxid) = 0;
 
+    /** Submit a transaction for one-hop dandelion broadcast */
+    virtual void DandelionBroadcast(const CTransactionRef& tx) = 0;
+
     /** Send ping message to all peers */
     virtual void SendPings() = 0;
 
