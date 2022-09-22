@@ -196,6 +196,8 @@ BITCOIN_CORE_H = \
   netbase.h \
   netgroup.h \
   netmessagemaker.h \
+  node/blockrequest.h \
+  node/blockrequest_impl.h \
   node/blockstorage.h \
   node/caches.h \
   node/chainstate.h \
@@ -380,6 +382,7 @@ libbitcoin_node_a_SOURCES = \
   net.cpp \
   net_processing.cpp \
   netgroup.cpp \
+  node/blockrequest.cpp \
   node/blockstorage.cpp \
   node/caches.cpp \
   node/chainstate.cpp \
