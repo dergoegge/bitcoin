@@ -3051,6 +3051,8 @@ bool Chainstate::ActivateBestChain(BlockValidationState& state, std::shared_ptr<
     } while (pindexNewTip != pindexMostWork);
     CheckBlockIndex();
 
+    if (pindexMostWork->nChainWork > m_best_header->nChainWork) m_best_header = pindexMostWork;
+
     // Write changes periodically to disk, after relay.
     if (!FlushStateToDisk(state, FlushStateMode::PERIODIC)) {
         return false;
