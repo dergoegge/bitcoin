@@ -944,6 +944,9 @@ public:
     //! Get all chainstates currently being used.
     std::vector<Chainstate*> GetAll();
 
+    std::vector<std::reference_wrapper<const CChain>> GetAllChainsForDownload() const
+        EXCLUSIVE_LOCKS_REQUIRED(GetMutex());
+
     //! Construct and activate a Chainstate on the basis of UTXO snapshot data.
     //!
     //! Steps:
