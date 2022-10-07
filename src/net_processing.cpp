@@ -865,7 +865,7 @@ private:
     int m_highest_fast_announce GUARDED_BY(::cs_main){0};
 
     /** Have we requested this block from a peer */
-    bool IsBlockRequested(const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+    bool IsBlockRequested(const uint256& hash) const EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     /** Remove this block from our tracked requested blocks. Called if:
      *  - the block has been received from a peer
@@ -883,7 +883,7 @@ private:
 
     /** Add not-in-flight missing successors to vBlocks, until it has at most
      * count entries. */
-    void FindNextBlocksToDownload(const Peer& peer, unsigned int count, std::vector<const CBlockIndex*>& vBlocks, NodeId& nodeStaller) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+    void FindNextBlocksToDownload(const Peer& peer, unsigned int count, std::vector<const CBlockIndex*>& vBlocks, NodeId& nodeStaller) const EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     std::map<uint256, std::pair<NodeId, std::list<QueuedBlock>::iterator> > mapBlocksInFlight GUARDED_BY(cs_main);
 
@@ -1099,7 +1099,7 @@ std::chrono::microseconds PeerManagerImpl::NextInvToInbounds(std::chrono::micros
     return m_next_inv_to_inbounds;
 }
 
-bool PeerManagerImpl::IsBlockRequested(const uint256& hash)
+bool PeerManagerImpl::IsBlockRequested(const uint256& hash) const
 {
     return mapBlocksInFlight.find(hash) != mapBlocksInFlight.end();
 }
@@ -1280,17 +1280,17 @@ void PeerManagerImpl::UpdateBlockAvailability(NodeId nodeid, const uint256 &hash
     }
 }
 
-void PeerManagerImpl::FindNextBlocksToDownload(const Peer& peer, unsigned int count, std::vector<const CBlockIndex*>& vBlocks, NodeId& nodeStaller)
+void PeerManagerImpl::FindNextBlocksToDownload(const Peer& peer,
+                                               unsigned int count,
+                                               std::vector<const CBlockIndex*>& vBlocks,
+                                               NodeId& nodeStaller) const
 {
     if (count == 0)
         return;
 
     vBlocks.reserve(vBlocks.size() + count);
-    CNodeState *state = State(peer.m_id);
+    const CNodeState *state = State(peer.m_id);
     assert(state != nullptr);
-
-    // Make sure pindexBestKnownBlock is up to date, we'll need it.
-    ProcessBlockAvailability(peer.m_id);
 
     if (state->pindexBestKnownBlock == nullptr || state->pindexBestKnownBlock->nChainWork < m_chainman.ActiveChain().Tip()->nChainWork || state->pindexBestKnownBlock->nChainWork < m_chainman.MinimumChainWork()) {
         // This peer has nothing interesting.
@@ -1357,7 +1357,7 @@ void PeerManagerImpl::FindNextBlocksToDownload(const Peer& peer, unsigned int co
                 }
             } else if (waitingfor == -1) {
                 // This is the first already-in-flight block.
-                waitingfor = mapBlocksInFlight[pindex->GetBlockHash()].first;
+                waitingfor = mapBlocksInFlight.at(pindex->GetBlockHash()).first;
             }
         }
     }
@@ -5780,6 +5780,10 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
         if (CanServeBlocks(*peer) && ((sync_blocks_and_headers_from_peer && !IsLimitedPeer(*peer)) || !m_chainman.ActiveChainstate().IsInitialBlockDownload()) && state.nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
             std::vector<const CBlockIndex*> vToDownload;
             NodeId staller = -1;
+
+            // Make sure pindexBestKnownBlock is up to date, we'll need it.
+            ProcessBlockAvailability(peer->m_id);
+
             FindNextBlocksToDownload(*peer, MAX_BLOCKS_IN_TRANSIT_PER_PEER - state.nBlocksInFlight, vToDownload, staller);
             for (const CBlockIndex *pindex : vToDownload) {
                 uint32_t nFetchFlags = GetFetchFlags(*peer);
