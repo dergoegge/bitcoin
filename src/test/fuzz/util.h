@@ -193,6 +193,12 @@ template <typename WeakEnumType, size_t size>
 
 [[nodiscard]] CScript ConsumeScript(FuzzedDataProvider& fuzzed_data_provider, const bool maybe_p2wsh = false) noexcept;
 
+template <class Grammar>
+[[nodiscard]] CScript ConsumeScript(FuzzedDataProvider& fuzzed_data_provider) noexcept
+{
+    return Grammar(fuzzed_data_provider).ToScript();
+}
+
 [[nodiscard]] uint32_t ConsumeSequence(FuzzedDataProvider& fuzzed_data_provider) noexcept;
 
 [[nodiscard]] inline CScriptNum ConsumeScriptNum(FuzzedDataProvider& fuzzed_data_provider) noexcept
