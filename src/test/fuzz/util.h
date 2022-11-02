@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -440,6 +441,162 @@ void ReadFromStream(FuzzedDataProvider& fuzzed_data_provider, Stream& stream) no
             break;
         }
     }
+}
+
+/** Structured fuzz input. */
+template <typename Stream, bool with_rest>
+class FuzzInput
+{
+private:
+    // Some targets need extra bytes supplied by the fuzzer for use with
+    // FuzzedDataProvider (e.g. for FuzzedSock).
+    std::optional<std::vector<uint8_t>> m_raw_rest{
+        with_rest ? std::optional{std::vector<uint8_t>()} : std::nullopt};
+
+public:
+    /** Populate input with initial default or random value */
+    virtual void Init(FastRandomContext& rnd) = 0;
+    /** Mutate input randomly or using LLVMFuzzerMutate */
+    virtual void Mutate(FastRandomContext& rnd) = 0;
+    /** Create human readable representation for an input */
+    virtual std::string ToString() const { return ""; }
+
+    virtual void Serialize(Stream& s) const = 0;
+    virtual void Unserialize(Stream& s) = 0;
+
+    bool HasRest() const { return with_rest; }
+
+    FuzzedDataProvider GetDataProviderForRest() const
+    {
+        assert(with_rest);
+        return FuzzedDataProvider{m_raw_rest->data(), m_raw_rest->size()};
+    }
+
+    void SerializeRest(Stream& s) const
+    {
+        assert(with_rest);
+
+        const auto& raw_rest{*m_raw_rest};
+        s.write({reinterpret_cast<const std::byte*>(raw_rest.data()), raw_rest.size()});
+    }
+
+    void UnserializeRest(Stream& s)
+    {
+        assert(with_rest);
+
+        auto& raw_rest{*m_raw_rest};
+        raw_rest.resize(s.size());
+        s.read({reinterpret_cast<std::byte*>(raw_rest.data()), raw_rest.size()});
+    }
+
+    void MutateRest(size_t max_size)
+    {
+        assert(with_rest);
+
+        auto& raw_rest{*m_raw_rest};
+        auto prev_size{std::min(raw_rest.size(), max_size)};
+        raw_rest.resize(max_size);
+        raw_rest.resize(LLVMFuzzerMutate(raw_rest.data(), prev_size, max_size));
+    }
+
+    virtual void SerializeFull(Stream& s) const
+    {
+        Serialize(s);
+        if (with_rest) SerializeRest(s);
+    }
+    virtual void UnserializeFull(Stream& s)
+    {
+        Unserialize(s);
+        if (with_rest) UnserializeRest(s);
+    }
+};
+
+/** Generic mutator function for `FuzzInput` types.
+ *
+ * Attempts to deserialize {data, size} into the supplied `FuzzInput` type `F`.
+ * - On success, the resulting input's custom mutator function (`F::Mutate`) is
+ *   called. 
+ * - On failure, the input's default initializer function (`F::Init`) is
+ *   called.
+ *
+ * The resulting input (deserialized or default initialized) is serialized and
+ * written back to `data` for further processing by the fuzzer.
+ *
+ * The input corpus for any target making use of this will entirely consist of
+ * valid serializations of `F`.
+ */
+template <template <typename Stream> class F, int ser_type, int ser_version>
+size_t FuzzInputMutator(uint8_t* data, size_t size, size_t max_size, unsigned int seed)
+{
+    CDataStream in_stream{{data, size}, ser_type, ser_version};
+
+    uint256 rnd_seed;
+    WriteBE32(rnd_seed.data(), seed);
+    FastRandomContext rnd(rnd_seed);
+
+    F<CDataStream> input;
+    try {
+        input.Unserialize(in_stream);
+        input.Mutate(rnd);
+
+        // Only deserialize and mutate rest if the input has specified to need it
+        if (input.HasRest()) {
+            // Any left overs in the input stream can be used as raw rest
+            size_t max_rest_size_pre_mutation{in_stream.size()};
+            // Serialized input size without the raw rest
+            size_t input_size{size - max_rest_size_pre_mutation};
+            // Maximum possible rest size wrt. max_size
+            size_t max_rest_size_post_mutation{max_size - input_size};
+
+            input.UnserializeRest(in_stream);
+            input.MutateRest(max_rest_size_post_mutation);
+        }
+    } catch (const std::ios_base::failure&) {
+        // Reset the input data stream in case we mutated it while trying.
+        in_stream = CDataStream{{data, size}, ser_type, ser_version};
+        input.Init(rnd);
+    }
+
+    CDataStream out_stream{ser_type, ser_version};
+    input.SerializeFull(out_stream);
+
+    if (out_stream.size() > max_size) {
+        return 0;
+    }
+
+    std::memcpy(data, out_stream.data(), out_stream.size());
+    return out_stream.size();
+}
+
+template <template <typename Stream> class F>
+std::optional<F<CDataStream>> ReadFuzzInput(const FuzzBufferType& buffer, int ser_version = PROTOCOL_VERSION)
+{
+    if (buffer.size() <= 1) {
+        // Ignore bogus data given an empty input corpus.
+        return std::nullopt;
+    }
+
+    CDataStream input_stream{{buffer.data(), buffer.size()}, SER_NETWORK, ser_version};
+    F<CDataStream> input;
+
+    if (buffer.size() > 0) {
+        try {
+            input.UnserializeFull(input_stream);
+        } catch (const std::ios_base::failure&) {
+            throw new std::runtime_error("could not deserialize input! input corpus is broken");
+        }
+    }
+
+    return input;
+}
+
+template <class T>
+T MutateValue(T v)
+{
+    size_t size =
+        LLVMFuzzerMutate(reinterpret_cast<uint8_t*>(&v), sizeof(v), sizeof(v));
+    memset(reinterpret_cast<uint8_t*>(&v) + size, 0, sizeof(v) - size);
+    return v;
 }
 
 #endif // BITCOIN_TEST_FUZZ_UTIL_H
