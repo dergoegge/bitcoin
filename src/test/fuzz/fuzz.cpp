@@ -19,6 +19,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <unistd.h>
@@ -49,20 +50,21 @@ const std::function<std::vector<const char*>()> G_TEST_COMMAND_LINE_ARGUMENTS = 
     return g_args;
 };
 
-std::map<std::string_view, std::tuple<TypeTestOneInput, TypeInitialize, TypeHidden>>& FuzzTargets()
+std::map<std::string_view, std::tuple<TypeTestOneInput, std::optional<TypeCustomMutator>, TypeInitialize, TypeHidden>>& FuzzTargets()
 {
-    static std::map<std::string_view, std::tuple<TypeTestOneInput, TypeInitialize, TypeHidden>> g_fuzz_targets;
+    static std::map<std::string_view, std::tuple<TypeTestOneInput, std::optional<TypeCustomMutator>, TypeInitialize, TypeHidden>> g_fuzz_targets;
     return g_fuzz_targets;
 }
 
-void FuzzFrameworkRegisterTarget(std::string_view name, TypeTestOneInput target, TypeInitialize init, TypeHidden hidden)
+void FuzzFrameworkRegisterTarget(std::string_view name, TypeTestOneInput target, std::optional<TypeCustomMutator> mutator, TypeInitialize init, TypeHidden hidden)
 {
-    const auto it_ins = FuzzTargets().try_emplace(name, std::move(target), std::move(init), hidden);
+    const auto it_ins = FuzzTargets().try_emplace(name, std::move(target), std::move(mutator), std::move(init), hidden);
     Assert(it_ins.second);
 }
 
 static std::string_view g_fuzz_target;
 static TypeTestOneInput* g_test_one_input{nullptr};
+static TypeCustomMutator* g_custom_mutator{nullptr};
 
 void initialize()
 {
@@ -103,7 +105,15 @@ void initialize()
     }
     Assert(!g_test_one_input);
     g_test_one_input = &std::get<0>(it->second);
-    std::get<1>(it->second)();
+
+    auto& mutator{std::get<1>(it->second)};
+    if (mutator.has_value()) {
+        g_custom_mutator = &mutator.value();
+    } else {
+        g_custom_mutator = nullptr;
+    }
+
+    std::get<2>(it->second)();
 }
 
 #if defined(PROVIDE_FUZZ_MAIN_FUNCTION)
@@ -146,6 +156,16 @@ void signal_handler(int signal)
     std::_Exit(EXIT_FAILURE);
 }
 #endif
+
+// This function is used by libFuzzer
+extern "C" size_t LLVMFuzzerCustomMutator(uint8_t* data, size_t size, size_t max_size, unsigned int seed)
+{
+    if (g_custom_mutator) {
+        return (*g_custom_mutator)(data, size, max_size, seed);
+    }
+
+    return LLVMFuzzerMutate(data, size, max_size);
+}
 
 // This function is used by libFuzzer
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
