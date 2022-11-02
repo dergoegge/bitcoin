@@ -547,6 +547,12 @@ public:
         READWRITE(Using<BigEndianFormatter<2>>(obj.port));
     }
 
+    // For tests only.
+    void SetPort(uint16_t port)
+    {
+        this->port = port;
+    }
+
     friend class CServiceHash;
     friend CService MaybeFlipIPv6toCJDNS(const CService& service);
 };

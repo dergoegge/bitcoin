@@ -300,6 +300,7 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/pow.cpp \
  test/fuzz/prevector.cpp \
  test/fuzz/primitives_transaction.cpp \
+ test/fuzz/process_addrv2.cpp \
  test/fuzz/process_message.cpp \
  test/fuzz/process_messages.cpp \
  test/fuzz/protocol.cpp \
