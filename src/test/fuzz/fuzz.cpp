@@ -50,15 +50,23 @@ const std::function<std::vector<const char*>()> G_TEST_COMMAND_LINE_ARGUMENTS = 
     return g_args;
 };
 
-std::map<std::string_view, std::tuple<TypeTestOneInput, std::optional<TypeCustomMutator>, TypeInitialize, TypeHidden>>& FuzzTargets()
+using FuzzTarget =
+    std::tuple<
+        TypeTestOneInput, std::optional<TypeCustomMutator>,
+        std::optional<TypeCustomToString>, TypeInitialize,
+        TypeHidden>;
+std::map<std::string_view, FuzzTarget>& FuzzTargets()
 {
-    static std::map<std::string_view, std::tuple<TypeTestOneInput, std::optional<TypeCustomMutator>, TypeInitialize, TypeHidden>> g_fuzz_targets;
+    static std::map<std::string_view, FuzzTarget> g_fuzz_targets;
     return g_fuzz_targets;
 }
 
-void FuzzFrameworkRegisterTarget(std::string_view name, TypeTestOneInput target, std::optional<TypeCustomMutator> mutator, TypeInitialize init, TypeHidden hidden)
+void FuzzFrameworkRegisterTarget(
+    std::string_view name, TypeTestOneInput target,
+    std::optional<TypeCustomMutator> mutator, std::optional<TypeCustomToString> to_string,
+    TypeInitialize init, TypeHidden hidden)
 {
-    const auto it_ins = FuzzTargets().try_emplace(name, std::move(target), std::move(mutator), std::move(init), hidden);
+    const auto it_ins = FuzzTargets().try_emplace(name, std::move(target), std::move(mutator), std::move(to_string), std::move(init), hidden);
     Assert(it_ins.second);
 }
 
@@ -66,7 +74,21 @@ static std::string_view g_fuzz_target;
 static TypeTestOneInput* g_test_one_input{nullptr};
 static TypeCustomMutator* g_custom_mutator{nullptr};
 
-void initialize()
+static bool read_file(fs::path p, std::vector<uint8_t>& data)
+{
+    uint8_t buffer[1024];
+    FILE* f = fsbridge::fopen(p, "rb");
+    if (f == nullptr) return false;
+    do {
+        const size_t length = fread(buffer, sizeof(uint8_t), sizeof(buffer), f);
+        if (ferror(f)) return false;
+        data.insert(data.end(), buffer, buffer + length);
+    } while (!feof(f));
+    fclose(f);
+    return true;
+}
+
+void initialize(int argc, char** argv)
 {
     // Terminate immediately if a fuzzing harness ever tries to create a TCP socket.
     CreateSock = [](const CService&) -> std::unique_ptr<Sock> { std::terminate(); };
@@ -96,6 +118,46 @@ void initialize()
         }
         should_abort = true;
     }
+
+    if (const char* target = std::getenv("INSPECT_FUZZ_INPUT")) {
+        const auto it = FuzzTargets().find(target);
+        if (it == FuzzTargets().end()) {
+            std::cerr << "No fuzzer for " << target << "." << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+
+        if (argc < 2) {
+            std::cerr << "No input file specified." << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+
+        auto& input_to_string{std::get<2>(it->second)};
+        if (!input_to_string) {
+            std::cerr << "Can't inspect inputs for " << target << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+
+        std::vector<uint8_t> buffer;
+
+        for (int i = 1; i < argc; ++i) {
+            fs::path input_path(*(argv + i));
+            if (fs::is_directory(input_path)) {
+                for (fs::directory_iterator it(input_path); it != fs::directory_iterator(); ++it) {
+                    if (!fs::is_regular_file(it->path())) continue;
+                    Assert(read_file(it->path(), buffer));
+                    std::cout << (*Assert(input_to_string))(FuzzBufferType{buffer.data(), buffer.size()}) << std::endl;
+                    buffer.clear();
+                }
+            } else {
+                Assert(read_file(input_path, buffer));
+                std::cout << (*Assert(input_to_string))(FuzzBufferType{buffer.data(), buffer.size()}) << std::endl;
+                buffer.clear();
+            }
+        }
+
+        should_abort = true;
+    }
+
     Assert(!should_abort);
     g_fuzz_target = Assert(std::getenv("FUZZ"));
     const auto it = FuzzTargets().find(g_fuzz_target);
@@ -113,7 +175,7 @@ void initialize()
         g_custom_mutator = nullptr;
     }
 
-    std::get<2>(it->second)();
+    std::get<3>(it->second)();
 }
 
 #if defined(PROVIDE_FUZZ_MAIN_FUNCTION)
@@ -125,22 +187,6 @@ static bool read_stdin(std::vector<uint8_t>& data)
         data.insert(data.end(), buffer, buffer + length);
     }
     return length == 0;
-}
-#endif
-
-#if defined(PROVIDE_FUZZ_MAIN_FUNCTION) && !defined(__AFL_LOOP)
-static bool read_file(fs::path p, std::vector<uint8_t>& data)
-{
-    uint8_t buffer[1024];
-    FILE* f = fsbridge::fopen(p, "rb");
-    if (f == nullptr) return false;
-    do {
-        const size_t length = fread(buffer, sizeof(uint8_t), sizeof(buffer), f);
-        if (ferror(f)) return false;
-        data.insert(data.end(), buffer, buffer + length);
-    } while (!feof(f));
-    fclose(f);
-    return true;
 }
 #endif
 
@@ -179,14 +225,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 extern "C" int LLVMFuzzerInitialize(int* argc, char*** argv)
 {
     SetArgs(*argc, *argv);
-    initialize();
+    initialize(*argc, *argv);
     return 0;
 }
 
 #if defined(PROVIDE_FUZZ_MAIN_FUNCTION)
 int main(int argc, char** argv)
 {
-    initialize();
+    initialize(argc, argv);
     static const auto& test_one_input = *Assert(g_test_one_input);
 #ifdef __AFL_INIT
     // Enable AFL deferred forkserver mode. Requires compilation using

@@ -175,6 +175,23 @@ public:
         }
     }
 
+    std::string ToString() const override
+    {
+        std::string out = "Addrv2Input:\n";
+        for (const CAddress& addr : m_addrs) {
+            out += addr.ToString();
+            out += " | nServices: ";
+            auto services{serviceFlagsToStr(addr.nServices)};
+            for (auto& service : services) {
+                out += service + ",";
+            }
+            // out += " | nTime: " + addr.nTime;
+            out += "\n";
+        }
+
+        return out;
+    }
+
     void Serialize(Stream& s) const override
     {
         s << m_addrs;
@@ -187,12 +204,22 @@ public:
     }
 };
 
+std::string AddrV2InputToString(const FuzzBufferType& buffer)
+{
+    auto input{ReadFuzzInput<AddrV2Input>(buffer, PROTOCOL_VERSION | ADDRV2_FORMAT)};
+    if (!input) {
+        return "could not read input";
+    }
+
+    return input->ToStringFull();
+}
+
 size_t AddrV2InputMutator(uint8_t* data, size_t size, size_t max_size, unsigned int seed)
 {
     return FuzzInputMutator<AddrV2Input, SER_NETWORK, PROTOCOL_VERSION | ADDRV2_FORMAT>(data, size, max_size, seed);
 }
 
-FUZZ_TARGET_INIT_WITH_CUSTOM_MUTATOR(process_addrv2, initialize_process_addrv2, AddrV2InputMutator)
+FUZZ_TARGET_INIT_WITH_CUSTOM_MUTATOR(process_addrv2, initialize_process_addrv2, AddrV2InputMutator, AddrV2InputToString)
 {
     ConnmanTestMsg& connman = *static_cast<ConnmanTestMsg*>(g_setup->m_node.connman.get());
     TestChainState& chainstate = *static_cast<TestChainState*>(&g_setup->m_node.chainman->ActiveChainstate());

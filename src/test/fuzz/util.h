@@ -466,6 +466,15 @@ public:
 
     bool HasRest() const { return with_rest; }
 
+    virtual std::string ToStringFull() const
+    {
+        auto out{ToString()};
+        if (HasRest()) {
+            out += "* Target also included rest bytes for use with FuzzedDataProvider";
+        }
+        return out;
+    }
+
     FuzzedDataProvider GetDataProviderForRest() const
     {
         assert(with_rest);
