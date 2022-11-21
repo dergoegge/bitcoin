@@ -59,7 +59,7 @@ private:
 
     uint64_t m_peers_downloading_from{0};
 
-    void ForgetRequestInternal(const uint256& block_hash, std::chrono::microseconds now);
+    bool ForgetRequestInternal(const uint256& block_hash, std::chrono::microseconds now);
 
     BlockRequestResult Request(NodeId id, const CBlockIndex& index,
                                std::chrono::microseconds now,
@@ -80,7 +80,7 @@ public:
     std::pair<BlockTxnResult, std::unique_ptr<CBlock>>
     ReceiveBlockTxn(NodeId id, const BlockTransactions& block_txn);
 
-    void ForgetRequest(const uint256& block_hash, std::chrono::microseconds now);
+    bool ForgetRequest(const uint256& block_hash, std::chrono::microseconds now);
 
     size_t GetNumBlocksInFlight() const;
     size_t GetNumBlocksInFlight(NodeId id) const;
@@ -98,7 +98,7 @@ public:
 
     std::vector<int> GetInFlightHeights(NodeId id) const;
 
-    void ForgetPeer(NodeId id);
+    bool ForgetPeer(NodeId id);
 };
 
 #endif

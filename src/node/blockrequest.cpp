@@ -16,19 +16,19 @@ static constexpr double BLOCK_DOWNLOAD_TIMEOUT_BASE = 1;
 /** Additional block download timeout per parallel downloading peer (i.e. 5 min) */
 static constexpr double BLOCK_DOWNLOAD_TIMEOUT_PER_PEER = 0.5;
 
-void BlockRequestTrackerImpl::ForgetRequestInternal(const uint256& block_hash, std::chrono::microseconds now)
+bool BlockRequestTrackerImpl::ForgetRequestInternal(const uint256& block_hash, std::chrono::microseconds now)
 {
     auto it{m_blocks_in_flight.find(block_hash)};
     if (it == m_blocks_in_flight.end()) {
         // Block was not requested
-        return;
+        return false;
     }
 
     auto [node_id, list_it] = it->second;
 
     auto supplier_it{m_block_suppliers.find(node_id)};
     if (supplier_it == m_block_suppliers.end()) {
-        return;
+        return false;
     }
     BlockSupplier& supplier{supplier_it->second};
 
@@ -46,6 +46,8 @@ void BlockRequestTrackerImpl::ForgetRequestInternal(const uint256& block_hash, s
     supplier.stalling_since = std::nullopt;
 
     m_blocks_in_flight.erase(it);
+
+    return true;
 }
 
 BlockRequestResult BlockRequestTrackerImpl::Request(NodeId id, const CBlockIndex& index, std::chrono::microseconds now, bool via_compact_block)
@@ -146,7 +148,6 @@ std::pair<BlockTxnResult, std::unique_ptr<CBlock>> BlockRequestTrackerImpl::Rece
     auto block{std::make_unique<CBlock>()};
     auto fillblock_result{queued_block->partial_block->FillBlock(*block, block_txn.txn)};
     queued_block->partial_block.reset(nullptr);
-
     switch (fillblock_result) {
     case READ_STATUS_INVALID:
         return {BlockTxnResult::MISBEHAVING, nullptr};
@@ -175,9 +176,9 @@ std::pair<BlockTxnResult, std::unique_ptr<CBlock>> BlockRequestTrackerImpl::Rece
     }
 }
 
-void BlockRequestTrackerImpl::ForgetRequest(const uint256& block_hash, std::chrono::microseconds now)
+bool BlockRequestTrackerImpl::ForgetRequest(const uint256& block_hash, std::chrono::microseconds now)
 {
-    ForgetRequestInternal(block_hash, now);
+    return ForgetRequestInternal(block_hash, now);
 }
 
 size_t BlockRequestTrackerImpl::GetNumBlocksInFlight() const
@@ -287,11 +288,11 @@ std::vector<int> BlockRequestTrackerImpl::GetInFlightHeights(NodeId id) const
     return heights;
 }
 
-void BlockRequestTrackerImpl::ForgetPeer(NodeId id)
+bool BlockRequestTrackerImpl::ForgetPeer(NodeId id)
 {
     auto supplier_it{m_block_suppliers.find(id)};
     if (supplier_it == m_block_suppliers.end()) {
-        return;
+        return false;
     }
 
     for (auto& queued_block : supplier_it->second.blocks_in_flight) {
@@ -299,6 +300,8 @@ void BlockRequestTrackerImpl::ForgetPeer(NodeId id)
     }
 
     m_block_suppliers.erase(supplier_it);
+
+    return true;
 }
 
 BlockRequestTracker::BlockRequestTracker(const CTxMemPool& mempool) : m_impl{std::make_unique<BlockRequestTrackerImpl>(mempool)} {}
@@ -324,9 +327,9 @@ BlockRequestTracker::ReceiveBlockTxn(NodeId id, const BlockTransactions& block_t
     return m_impl->ReceiveBlockTxn(id, block_txn);
 }
 
-void BlockRequestTracker::ForgetRequest(const uint256& block_hash, std::chrono::microseconds now)
+bool BlockRequestTracker::ForgetRequest(const uint256& block_hash, std::chrono::microseconds now)
 {
-    m_impl->ForgetRequest(block_hash, now);
+    return m_impl->ForgetRequest(block_hash, now);
 }
 
 size_t BlockRequestTracker::GetNumBlocksInFlight() const
@@ -372,7 +375,7 @@ std::vector<int> BlockRequestTracker::GetInFlightHeights(NodeId id) const
     return m_impl->GetInFlightHeights(id);
 }
 
-void BlockRequestTracker::ForgetPeer(NodeId id)
+bool BlockRequestTracker::ForgetPeer(NodeId id)
 {
-    m_impl->ForgetPeer(id);
+    return m_impl->ForgetPeer(id);
 }

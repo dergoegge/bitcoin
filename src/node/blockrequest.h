@@ -23,21 +23,21 @@ namespace Consensus {
 struct Params;
 };
 
-/** Result enum for compact block processing by the block request module. */
+/** Result enum for compact block processing. */
 enum class BlockRequestResult {
     SUCCESS,
     ALREADY_REQUESTED,
     ALREADY_REQUESTED_VIA_COMPACT,
 };
 
-/** Result enum for compact block processing by the block request module. */
+/** Result enum for compact block processing. */
 enum class CompactBlockResult {
     //! Compact block was successfully processed and the block is now marked as
     //! requested via compact block.
     SUCCESS,
     //! Block was already marked as requested.
     ALREADY_REQUESTED,
-    //! Compact block
+    //!
     MISBEHAVING,
     //!
     SHORT_ID_COLLISION,
@@ -45,6 +45,7 @@ enum class CompactBlockResult {
 
 enum class BlockTxnResult {
     SUCCESS,
+	//! blocktxn was not requested
     NOT_REQUESTED,
     MISBEHAVING,
     SHORT_ID_COLLISION,
@@ -70,7 +71,7 @@ public:
     std::pair<BlockTxnResult, std::unique_ptr<CBlock>>
     ReceiveBlockTxn(NodeId id, const BlockTransactions& block_txn);
 
-    void ForgetRequest(const uint256& block_hash, std::chrono::microseconds now);
+    bool ForgetRequest(const uint256& block_hash, std::chrono::microseconds now);
 
     size_t GetNumBlocksInFlight() const;
     size_t GetNumBlocksInFlight(NodeId id) const;
@@ -88,7 +89,7 @@ public:
 
     std::vector<int> GetInFlightHeights(NodeId id) const;
 
-    void ForgetPeer(NodeId id);
+    bool ForgetPeer(NodeId id);
 };
 
 #endif
