@@ -393,6 +393,11 @@ struct Peer {
     /** Whether we've sent our peer a sendheaders message. **/
     std::atomic<bool> m_sent_sendheaders{false};
 
+    /** We selected peer as (compact blocks) high-bandwidth peer (BIP152). */
+    std::atomic<bool> m_bip152_highbandwidth_to{false};
+    /** Peer selected us as (compact blocks) high-bandwidth peer (BIP152). */
+    std::atomic<bool> m_bip152_highbandwidth_from{false};
+
     explicit Peer(NodeId id, ServiceFlags our_services)
         : m_id{id}
         , m_our_services{our_services}
@@ -1237,14 +1242,16 @@ void PeerManagerImpl::MaybeSetPeerAsAnnouncingHeaderAndIDs(NodeId nodeid)
             m_connman.ForNode(lNodesAnnouncingHeaderAndIDs.front(), [this](CNode* pnodeStop){
                 m_connman.PushMessage(pnodeStop, CNetMsgMaker(pnodeStop->GetCommonVersion()).Make(NetMsgType::SENDCMPCT, /*high_bandwidth=*/false, /*version=*/CMPCTBLOCKS_VERSION));
                 // save BIP152 bandwidth state: we select peer to be low-bandwidth
-                pnodeStop->m_bip152_highbandwidth_to = false;
+                PeerRef peer{GetPeerRef(pnodeStop->GetId())};
+                if (peer) peer->m_bip152_highbandwidth_to = false;
                 return true;
             });
             lNodesAnnouncingHeaderAndIDs.pop_front();
         }
         m_connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetCommonVersion()).Make(NetMsgType::SENDCMPCT, /*high_bandwidth=*/true, /*version=*/CMPCTBLOCKS_VERSION));
         // save BIP152 bandwidth state: we select peer to be high-bandwidth
-        pfrom->m_bip152_highbandwidth_to = true;
+        PeerRef peer{GetPeerRef(pfrom->GetId())};
+        if (peer) peer->m_bip152_highbandwidth_to = true;
         lNodesAnnouncingHeaderAndIDs.push_back(pfrom->GetId());
         return true;
     });
@@ -1638,6 +1645,8 @@ bool PeerManagerImpl::GetPeerStats(NodeId nodeid, PeerStats& stats) const
             stats.presync_height = peer->m_headers_sync->GetPresyncHeight();
         }
     }
+    stats.m_bip152_highbandwidth_to = peer->m_bip152_highbandwidth_to;
+    stats.m_bip152_highbandwidth_from = peer->m_bip152_highbandwidth_from;
 
     return true;
 }
@@ -3499,7 +3508,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         nodestate->m_requested_hb_cmpctblocks = sendcmpct_hb;
         // save whether peer selects us as BIP152 high-bandwidth peer
         // (receiving sendcmpct(1) signals high-bandwidth, sendcmpct(0) low-bandwidth)
-        pfrom.m_bip152_highbandwidth_from = sendcmpct_hb;
+        peer->m_bip152_highbandwidth_from = sendcmpct_hb;
         return;
     }
 

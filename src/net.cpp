@@ -628,8 +628,6 @@ void CNode::CopyStats(CNodeStats& stats)
     X(m_addr_name);
     X(nVersion);
     stats.fInbound = IsInboundConn();
-    X(m_bip152_highbandwidth_to);
-    X(m_bip152_highbandwidth_from);
     {
         LOCK(m_send_queue_mutex);
         X(mapSendBytesPerMsgType);
