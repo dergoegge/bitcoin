@@ -405,6 +405,10 @@ struct Peer {
     /** Protocol version indicated by the peer in its initial version message. */
     std::atomic<int> m_version{0};
 
+    /** Greatest common protocol version that both we and the peer support. Set
+     * during the version handshake. */
+    std::atomic<int> m_greatest_common_version{INIT_PROTO_VERSION};
+
     explicit Peer(NodeId id, ServiceFlags our_services)
         : m_id{id}
         , m_our_services{our_services}
@@ -1246,19 +1250,22 @@ void PeerManagerImpl::MaybeSetPeerAsAnnouncingHeaderAndIDs(NodeId nodeid)
         if (lNodesAnnouncingHeaderAndIDs.size() >= 3) {
             // As per BIP152, we only get 3 of our peers to announce
             // blocks using compact encodings.
-            m_connman.ForNode(lNodesAnnouncingHeaderAndIDs.front(), [this](CNode* pnodeStop){
-                m_connman.PushMessage(pnodeStop, CNetMsgMaker(pnodeStop->GetCommonVersion()).Make(NetMsgType::SENDCMPCT, /*high_bandwidth=*/false, /*version=*/CMPCTBLOCKS_VERSION));
-                // save BIP152 bandwidth state: we select peer to be low-bandwidth
+            m_connman.ForNode(lNodesAnnouncingHeaderAndIDs.front(), [this](CNode* pnodeStop) {
                 PeerRef peer{GetPeerRef(pnodeStop->GetId())};
-                if (peer) peer->m_bip152_highbandwidth_to = false;
+                if (!peer) return false;
+
+                m_connman.PushMessage(pnodeStop, CNetMsgMaker(peer->m_greatest_common_version).Make(NetMsgType::SENDCMPCT, /*high_bandwidth=*/false, /*version=*/CMPCTBLOCKS_VERSION));
+                // save BIP152 bandwidth state: we select peer to be low-bandwidth
+                peer->m_bip152_highbandwidth_to = false;
                 return true;
             });
             lNodesAnnouncingHeaderAndIDs.pop_front();
         }
-        m_connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetCommonVersion()).Make(NetMsgType::SENDCMPCT, /*high_bandwidth=*/true, /*version=*/CMPCTBLOCKS_VERSION));
-        // save BIP152 bandwidth state: we select peer to be high-bandwidth
         PeerRef peer{GetPeerRef(pfrom->GetId())};
-        if (peer) peer->m_bip152_highbandwidth_to = true;
+        if (!peer) return false;
+        m_connman.PushMessage(pfrom, CNetMsgMaker(peer->m_greatest_common_version).Make(NetMsgType::SENDCMPCT, /*high_bandwidth=*/true, /*version=*/CMPCTBLOCKS_VERSION));
+        // save BIP152 bandwidth state: we select peer to be high-bandwidth
+        peer->m_bip152_highbandwidth_to = true;
         lNodesAnnouncingHeaderAndIDs.push_back(pfrom->GetId());
         return true;
     });
@@ -1810,8 +1817,9 @@ std::optional<std::string> PeerManagerImpl::FetchBlock(NodeId peer_id, const CBl
     std::vector<CInv> invs{CInv(MSG_BLOCK | MSG_WITNESS_FLAG, hash)};
 
     // Send block request message to the peer
-    bool success = m_connman.ForNode(peer_id, [this, &invs](CNode* node) {
-        const CNetMsgMaker msgMaker(node->GetCommonVersion());
+
+    const CNetMsgMaker msgMaker(peer->m_greatest_common_version);
+    bool success = m_connman.ForNode(peer_id, [this, &invs, &msgMaker](CNode* node) {
         this->m_connman.PushMessage(node, msgMaker.Make(NetMsgType::GETDATA, invs));
         return true;
     });
@@ -1945,8 +1953,10 @@ void PeerManagerImpl::NewPoWValidBlock(const CBlockIndex *pindex, const std::sha
 
     m_connman.ForEachNode([this, pindex, &lazy_ser, &hashBlock](CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
         AssertLockHeld(::cs_main);
+        PeerRef peer{GetPeerRef(pnode->GetId())};
+        if (!peer) return;
 
-        if (pnode->GetCommonVersion() < INVALID_CB_NO_BAN_VERSION || pnode->fDisconnect)
+        if (peer->m_greatest_common_version < INVALID_CB_NO_BAN_VERSION || pnode->fDisconnect)
             return;
         ProcessBlockAvailability(pnode->GetId());
         CNodeState &state = *State(pnode->GetId());
@@ -2193,7 +2203,7 @@ void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& 
         LogPrint(BCLog::NET, "%s: ignoring request from peer=%i for old block that isn't in the main chain\n", __func__, pfrom.GetId());
         return;
     }
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
+    const CNetMsgMaker msgMaker(peer.m_greatest_common_version);
     // disconnect node in case we have reached the outbound limit for serving historical blocks
     if (m_connman.OutboundTargetReached(true) &&
         (((m_chainman.m_best_header != nullptr) && (m_chainman.m_best_header->GetBlockTime() - pindex->GetBlockTime() > HISTORICAL_BLOCK_AGE)) || inv.IsMsgFilteredBlk()) &&
@@ -2334,7 +2344,7 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
 
     std::deque<CInv>::iterator it = peer.m_getdata_requests.begin();
     std::vector<CInv> vNotFound;
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
+    const CNetMsgMaker msgMaker(peer.m_greatest_common_version);
 
     const auto now{GetTime<std::chrono::seconds>()};
     // Get last mempool request time
@@ -2442,7 +2452,7 @@ void PeerManagerImpl::SendBlockTransactions(CNode& pfrom, Peer& peer, const CBlo
         resp.txn[i] = block.vtx[req.indexes[i]];
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
+    const CNetMsgMaker msgMaker(peer.m_greatest_common_version);
     m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::BLOCKTXN, resp));
 }
 
@@ -2490,7 +2500,7 @@ arith_uint256 PeerManagerImpl::GetAntiDoSWorkThreshold()
 void PeerManagerImpl::HandleFewUnconnectingHeaders(CNode& pfrom, Peer& peer,
         const std::vector<CBlockHeader>& headers)
 {
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
+    const CNetMsgMaker msgMaker(peer.m_greatest_common_version);
 
     LOCK(cs_main);
     CNodeState *nodestate = State(pfrom.GetId());
@@ -2674,7 +2684,7 @@ bool PeerManagerImpl::IsAncestorOfBestHeaderOrTip(const CBlockIndex* header)
 
 bool PeerManagerImpl::MaybeSendGetHeaders(CNode& pfrom, const CBlockLocator& locator, Peer& peer)
 {
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
+    const CNetMsgMaker msgMaker(peer.m_greatest_common_version);
 
     const auto current_time = NodeClock::now();
 
@@ -2695,7 +2705,7 @@ bool PeerManagerImpl::MaybeSendGetHeaders(CNode& pfrom, const CBlockLocator& loc
  */
 void PeerManagerImpl::HeadersDirectFetchBlocks(CNode& pfrom, const Peer& peer, const CBlockIndex& last_header)
 {
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
+    const CNetMsgMaker msgMaker(peer.m_greatest_common_version);
 
     LOCK(cs_main);
     CNodeState *nodestate = State(pfrom.GetId());
@@ -3109,7 +3119,7 @@ void PeerManagerImpl::ProcessGetCFilters(CNode& node,Peer& peer, CDataStream& vR
     }
 
     for (const auto& filter : filters) {
-        CSerializedNetMsg msg = CNetMsgMaker(node.GetCommonVersion())
+        CSerializedNetMsg msg = CNetMsgMaker(peer.m_greatest_common_version)
             .Make(NetMsgType::CFILTER, filter);
         m_connman.PushMessage(&node, std::move(msg));
     }
@@ -3150,7 +3160,7 @@ void PeerManagerImpl::ProcessGetCFHeaders(CNode& node, Peer& peer, CDataStream& 
         return;
     }
 
-    CSerializedNetMsg msg = CNetMsgMaker(node.GetCommonVersion())
+    CSerializedNetMsg msg = CNetMsgMaker(peer.m_greatest_common_version)
         .Make(NetMsgType::CFHEADERS,
               filter_type_ser,
               stop_index->GetBlockHash(),
@@ -3191,7 +3201,7 @@ void PeerManagerImpl::ProcessGetCFCheckPt(CNode& node, Peer& peer, CDataStream& 
         }
     }
 
-    CSerializedNetMsg msg = CNetMsgMaker(node.GetCommonVersion())
+    CSerializedNetMsg msg = CNetMsgMaker(peer.m_greatest_common_version)
         .Make(NetMsgType::CFCHECKPT,
               filter_type_ser,
               stop_index->GetBlockHash(),
@@ -3300,7 +3310,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         // Change version
         const int greatest_common_version = std::min(nVersion, PROTOCOL_VERSION);
-        pfrom.SetCommonVersion(greatest_common_version);
+        peer->m_greatest_common_version = greatest_common_version;
         peer->m_version = nVersion;
 
         const CNetMsgMaker msg_maker(greatest_common_version);
@@ -3442,7 +3452,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
     }
 
     // At this point, the outgoing message serialization version can't change.
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
+    const CNetMsgMaker msgMaker(peer->m_greatest_common_version);
 
     if (msg_type == NetMsgType::VERACK) {
         if (pfrom.fSuccessfullyConnected) {
@@ -3457,7 +3467,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                       pfrom.ConnectionTypeAsString());
         }
 
-        if (pfrom.GetCommonVersion() >= SHORT_IDS_BLOCKS_VERSION) {
+        if (peer->m_greatest_common_version >= SHORT_IDS_BLOCKS_VERSION) {
             // Tell our peer we are willing to provide version 2 cmpctblocks.
             // However, we do not request new block announcements using
             // cmpctblock messages.
@@ -3530,7 +3540,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             pfrom.fDisconnect = true;
             return;
         }
-        if (pfrom.GetCommonVersion() >= WTXID_RELAY_VERSION) {
+        if (peer->m_greatest_common_version >= WTXID_RELAY_VERSION) {
             if (!peer->m_wtxid_relay) {
                 peer->m_wtxid_relay = true;
                 m_wtxid_relay_peers++;
@@ -3538,7 +3548,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 LogPrint(BCLog::NET, "ignoring duplicate wtxidrelay from peer=%d\n", pfrom.GetId());
             }
         } else {
-            LogPrint(BCLog::NET, "ignoring wtxidrelay due to old common version=%d from peer=%d\n", pfrom.GetCommonVersion(), pfrom.GetId());
+            LogPrint(BCLog::NET, "ignoring wtxidrelay due to old common version=%d from peer=%d\n", peer->m_greatest_common_version, pfrom.GetId());
         }
         return;
     }
@@ -4675,7 +4685,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
     }
 
     if (msg_type == NetMsgType::PING) {
-        if (pfrom.GetCommonVersion() > BIP0031_VERSION) {
+        if (peer->m_greatest_common_version > BIP0031_VERSION) {
             uint64_t nonce = 0;
             vRecv >> nonce;
             // Echo the message back with the nonce. This allows for two useful features:
@@ -4961,7 +4971,7 @@ bool PeerManagerImpl::ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt
         CaptureMessage(pfrom->addr, msg.m_type, MakeUCharSpan(msg.m_recv), /*is_incoming=*/true);
     }
 
-    msg.SetVersion(pfrom->GetCommonVersion());
+    msg.SetVersion(peer->m_greatest_common_version);
 
     try {
         ProcessMessage(*pfrom, msg.m_type, msg.m_recv, msg.m_time, interruptMsgProc);
@@ -4990,7 +5000,7 @@ void PeerManagerImpl::ConsiderEviction(CNode& pto, Peer& peer, std::chrono::seco
     AssertLockHeld(cs_main);
 
     CNodeState &state = *State(pto.GetId());
-    const CNetMsgMaker msgMaker(pto.GetCommonVersion());
+    const CNetMsgMaker msgMaker(peer.m_greatest_common_version);
 
     if (!state.m_chain_sync.m_protect && pto.IsOutboundOrBlockRelayConn() && state.fSyncStarted) {
         // This is an outbound peer subject to disconnection if they don't
@@ -5186,7 +5196,7 @@ void PeerManagerImpl::MaybeSendPing(CNode& node_to, Peer& peer, std::chrono::mic
         return;
     }
 
-    const CNetMsgMaker msgMaker(node_to.GetCommonVersion());
+    const CNetMsgMaker msgMaker(peer.m_greatest_common_version);
     bool pingSend = false;
 
     if (peer.m_ping_queued) {
@@ -5206,7 +5216,7 @@ void PeerManagerImpl::MaybeSendPing(CNode& node_to, Peer& peer, std::chrono::mic
         } while (nonce == 0);
         peer.m_ping_queued = false;
         peer.m_ping_start = now;
-        if (node_to.GetCommonVersion() > BIP0031_VERSION) {
+        if (peer.m_greatest_common_version > BIP0031_VERSION) {
             peer.m_ping_nonce_sent = nonce;
             m_connman.PushMessage(&node_to, msgMaker.Make(NetMsgType::PING, nonce));
         } else {
@@ -5276,7 +5286,7 @@ void PeerManagerImpl::MaybeSendAddr(CNode& node, Peer& peer, std::chrono::micros
         msg_type = NetMsgType::ADDR;
         make_flags = 0;
     }
-    m_connman.PushMessage(&node, CNetMsgMaker(node.GetCommonVersion()).Make(make_flags, msg_type, peer.m_addrs_to_send));
+    m_connman.PushMessage(&node, CNetMsgMaker(peer.m_greatest_common_version).Make(make_flags, msg_type, peer.m_addrs_to_send));
     peer.m_addrs_to_send.clear();
 
     // we only send the big addr message once
@@ -5291,7 +5301,7 @@ void PeerManagerImpl::MaybeSendSendHeaders(CNode& node, Peer& peer)
     // initial-headers-sync with this peer. Receiving headers announcements for
     // new blocks while trying to sync their headers chain is problematic,
     // because of the state tracking done.
-    if (!peer.m_sent_sendheaders && node.GetCommonVersion() >= SENDHEADERS_VERSION) {
+    if (!peer.m_sent_sendheaders && peer.m_greatest_common_version >= SENDHEADERS_VERSION) {
         LOCK(cs_main);
         CNodeState &state = *State(node.GetId());
         if (state.pindexBestKnownBlock != nullptr &&
@@ -5300,7 +5310,7 @@ void PeerManagerImpl::MaybeSendSendHeaders(CNode& node, Peer& peer)
             // We send this to non-NODE NETWORK peers as well, because even
             // non-NODE NETWORK peers can announce blocks (such as pruning
             // nodes)
-            m_connman.PushMessage(&node, CNetMsgMaker(node.GetCommonVersion()).Make(NetMsgType::SENDHEADERS));
+            m_connman.PushMessage(&node, CNetMsgMaker(peer.m_greatest_common_version).Make(NetMsgType::SENDHEADERS));
             peer.m_sent_sendheaders = true;
         }
     }
@@ -5309,7 +5319,7 @@ void PeerManagerImpl::MaybeSendSendHeaders(CNode& node, Peer& peer)
 void PeerManagerImpl::MaybeSendFeefilter(CNode& pto, Peer& peer, std::chrono::microseconds current_time)
 {
     if (m_ignore_incoming_txs) return;
-    if (pto.GetCommonVersion() < FEEFILTER_VERSION) return;
+    if (peer.m_greatest_common_version < FEEFILTER_VERSION) return;
     // peers with the forcerelay permission should not filter txs to us
     if (pto.HasPermission(NetPermissionFlags::ForceRelay)) return;
     // Don't send feefilter messages to outbound block-relay-only peers since they should never announce
@@ -5336,7 +5346,7 @@ void PeerManagerImpl::MaybeSendFeefilter(CNode& pto, Peer& peer, std::chrono::mi
         // We always have a fee filter of at least the min relay fee
         filterToSend = std::max(filterToSend, m_mempool.m_min_relay_feerate.GetFeePerK());
         if (filterToSend != peer.m_fee_filter_sent) {
-            m_connman.PushMessage(&pto, CNetMsgMaker(pto.GetCommonVersion()).Make(NetMsgType::FEEFILTER, filterToSend));
+            m_connman.PushMessage(&pto, CNetMsgMaker(peer.m_greatest_common_version).Make(NetMsgType::FEEFILTER, filterToSend));
             peer.m_fee_filter_sent = filterToSend;
         }
         peer.m_next_send_feefilter = GetExponentialRand(current_time, AVG_FEEFILTER_BROADCAST_INTERVAL);
@@ -5414,7 +5424,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
         return true;
 
     // If we get here, the outgoing message serialization version is set and can't change.
-    const CNetMsgMaker msgMaker(pto->GetCommonVersion());
+    const CNetMsgMaker msgMaker(peer->m_greatest_common_version);
 
     const auto current_time{GetTime<std::chrono::microseconds>()};
 
