@@ -625,7 +625,6 @@ void CNode::CopyStats(CNodeStats& stats)
     X(m_last_block_time);
     X(m_connected);
     X(m_addr_name);
-    X(nVersion);
     stats.fInbound = IsInboundConn();
     {
         LOCK(m_send_queue_mutex);

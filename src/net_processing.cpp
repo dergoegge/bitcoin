@@ -402,6 +402,9 @@ struct Peer {
      * timestamp the peer send in the version message. */
     std::atomic<int64_t> m_time_offset{0};
 
+    /** Protocol version indicated by the peer in its initial version message. */
+    std::atomic<int> m_version{0};
+
     explicit Peer(NodeId id, ServiceFlags our_services)
         : m_id{id}
         , m_our_services{our_services}
@@ -1652,6 +1655,7 @@ bool PeerManagerImpl::GetPeerStats(NodeId nodeid, PeerStats& stats) const
     stats.m_bip152_highbandwidth_to = peer->m_bip152_highbandwidth_to;
     stats.m_bip152_highbandwidth_from = peer->m_bip152_highbandwidth_from;
     stats.m_time_offset = peer->m_time_offset;
+    stats.m_version = peer->m_version;
 
     return true;
 }
@@ -3219,7 +3223,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
     if (peer == nullptr) return;
 
     if (msg_type == NetMsgType::VERSION) {
-        if (pfrom.nVersion != 0) {
+        if (peer->m_version != 0) {
             LogPrint(BCLog::NET, "redundant version message from peer=%d\n", pfrom.GetId());
             return;
         }
@@ -3297,7 +3301,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // Change version
         const int greatest_common_version = std::min(nVersion, PROTOCOL_VERSION);
         pfrom.SetCommonVersion(greatest_common_version);
-        pfrom.nVersion = nVersion;
+        peer->m_version = nVersion;
 
         const CNetMsgMaker msg_maker(greatest_common_version);
 
@@ -3405,7 +3409,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             remoteAddr = ", peeraddr=" + pfrom.addr.ToStringAddrPort();
 
         LogPrint(BCLog::NET, "receive version message: %s: version %d, blocks=%d, us=%s, txrelay=%d, peer=%d%s\n",
-                  cleanSubVer, pfrom.nVersion,
+                  cleanSubVer, peer->m_version,
                   peer->m_starting_height, addrMe.ToStringAddrPort(), fRelay, pfrom.GetId(),
                   remoteAddr);
 
@@ -3431,7 +3435,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         return;
     }
 
-    if (pfrom.nVersion == 0) {
+    if (peer->m_version == 0) {
         // Must have a version message before anything else
         LogPrint(BCLog::NET, "non-version message before version handshake. Message \"%s\" from peer=%d\n", SanitizeString(msg_type), pfrom.GetId());
         return;
@@ -3448,7 +3452,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         if (!pfrom.IsInboundConn()) {
             LogPrintf("New outbound peer connected: version: %d, blocks=%d, peer=%d%s (%s)\n",
-                      pfrom.nVersion.load(), peer->m_starting_height,
+                      peer->m_version.load(), peer->m_starting_height,
                       pfrom.GetId(), (fLogIPs ? strprintf(", peeraddr=%s", pfrom.addr.ToStringAddrPort()) : ""),
                       pfrom.ConnectionTypeAsString());
         }
