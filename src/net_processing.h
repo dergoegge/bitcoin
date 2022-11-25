@@ -39,6 +39,7 @@ struct PeerStats {
     std::string m_clean_subversion;
     bool m_bip152_highbandwidth_to{false};
     bool m_bip152_highbandwidth_from{false};
+    int64_t m_time_offset{0};
 };
 
 class PeerManager : public CValidationInterface, public NetEventsInterface
