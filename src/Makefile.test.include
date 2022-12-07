@@ -336,6 +336,7 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/tx_pool.cpp \
  test/fuzz/txorphan.cpp \
  test/fuzz/txrequest.cpp \
+ test/fuzz/txreconciliation.cpp \
  test/fuzz/utxo_snapshot.cpp \
  test/fuzz/validation_load_mempool.cpp \
  test/fuzz/versionbits.cpp
