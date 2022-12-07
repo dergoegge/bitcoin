@@ -8,6 +8,7 @@
 #include <net.h>
 #include <sync.h>
 
+#include <chrono>
 #include <memory>
 #include <tuple>
 
@@ -98,7 +99,8 @@ public:
      * - our q-coefficient with the peer, formatted to be transmitted as integer value
      * If the peer was not previously registered for reconciliations, returns nullopt.
      */
-    std::optional<std::pair<uint16_t, uint16_t>> MaybeRequestReconciliation(NodeId peer_id);
+    std::optional<std::pair<uint16_t, uint16_t>> MaybeRequestReconciliation(
+        NodeId peer_id, std::chrono::microseconds now);
 
     /**
      * Returns the size of the reconciliation set we have locally for the given peer.

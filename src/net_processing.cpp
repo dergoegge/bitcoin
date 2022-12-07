@@ -5849,7 +5849,8 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
         //
         {
             if (!m_chainman.ActiveChainstate().IsInitialBlockDownload() && m_txreconciliation) {
-                const auto reconciliation_request_params = m_txreconciliation->MaybeRequestReconciliation(pto->GetId());
+                const auto reconciliation_request_params =
+                    m_txreconciliation->MaybeRequestReconciliation(pto->GetId(), GetTime<std::chrono::microseconds>());
                 if (reconciliation_request_params) {
                     const auto [local_set_size, local_q_formatted] = (*reconciliation_request_params);
                     m_connman.PushMessage(pto, msgMaker.Make(NetMsgType::REQTXRCNCL, local_set_size, local_q_formatted));
