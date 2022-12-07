@@ -319,8 +319,8 @@ public:
         // Find all peers of the same reconciliation direction.
         std::for_each(m_states.begin(), m_states.end(),
                       [&eligible_peers, we_initiate](auto indexed_state) {
-                          const auto& cur_state = std::get<TxReconciliationState>(indexed_state.second);
-                          if (cur_state.m_we_initiate == we_initiate) eligible_peers.push_back(indexed_state.first);
+                          const auto* cur_state = std::get_if<TxReconciliationState>(&indexed_state.second);
+                          if (cur_state && cur_state->m_we_initiate == we_initiate) eligible_peers.push_back(indexed_state.first);
                       });
 
         // We found the peer above, so it must be in this list.
