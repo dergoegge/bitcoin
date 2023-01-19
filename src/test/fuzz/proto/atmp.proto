@@ -1,0 +1,81 @@
+syntax = "proto2";
+
+package proto_fuzz;
+
+message PrevOut {
+  // Since we fill in the txid on transactions via post processing, we enable
+  // the fuzzer to copy those txids into PrevOuts.
+  required string txid = 1;
+  required uint32 n = 2;
+}
+
+message Script {
+  required bytes raw = 1;
+}
+
+message TxInput {
+  required PrevOut prev_out = 1;
+  required Script script_sig = 2;
+  required uint32 sequence = 3;
+
+  // i.e scriptWitness
+  repeated bytes witness_stack = 4;
+}
+
+message TxOutput {
+  required int64 value = 1;
+  required Script script_pub_key = 2;
+}
+
+message Transaction {
+  // The txid (hex) is filled in by post processing
+  required string txid = 1;
+
+  // Actual tx data
+  repeated TxInput inputs = 2;
+  repeated TxOutput outputs = 3;
+
+  required int32 version = 4;
+  required uint32 lock_time = 5;
+}
+
+message Package {
+  repeated Transaction transactions = 1;
+}
+
+// Describes a ATMP event.
+message AcceptToMemoryPool {
+  oneof tx_or_pkg {
+    Transaction transaction = 1;
+    Package pkg = 2;
+  }
+  optional int64 mock_time = 3;
+  required bool rolling_fee_update = 4;
+  optional int64 prioritise_delta = 5;
+  required bool bypass_limits = 6;
+}
+
+message MempoolLimits {
+  optional uint32 ancestor_count_limit = 1;
+  optional uint32 ancestor_size_limit = 2;
+  optional uint32 descendant_count_limit = 3;
+  optional uint32 descendant_size_limit = 4;
+}
+
+message MempoolOptions {
+  optional int64 max_size_bytes = 1;
+  optional uint32 expiry_hours = 2;
+  optional int64 incremental_relay_feerate = 3;
+  optional int64 min_relay_feerate = 4;
+  optional int64 dust_relay_feerate = 5;
+  optional int32 max_datacarrier_bytes = 6;
+  optional bool permit_bare_multisig = 7;
+  optional bool require_standard = 8;
+  optional bool full_rbf = 9;
+  required MempoolLimits limits = 10;
+}
+
+message Mempool {
+  repeated AcceptToMemoryPool atmp_events = 1;
+  required MempoolOptions options = 2;
+}
