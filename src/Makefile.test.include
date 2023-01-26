@@ -6,6 +6,7 @@ if ENABLE_FUZZ_BINARY
 noinst_PROGRAMS += test/fuzz/fuzz
 noinst_PROGRAMS += test/fuzz/proto/atmp
 noinst_PROGRAMS += test/fuzz/proto/version
+noinst_PROGRAMS += test/fuzz/proto/validation
 endif
 
 if ENABLE_TESTS
@@ -17,6 +18,7 @@ TEST_BINARY=test/test_bitcoin$(EXEEXT)
 FUZZ_BINARY=test/fuzz/fuzz$(EXEEXT)
 PROTO_FUZZ_ATMP_BINARY=test/fuzz/proto/atmp$(EXEEXT)
 PROTO_FUZZ_VERSION_BINARY=test/fuzz/proto/version$(EXEEXT)
+PROTO_FUZZ_VALIDATION_BINARY=test/fuzz/proto/validation$(EXEEXT)
 
 JSON_TEST_FILES = \
   test/data/script_tests.json \
@@ -262,6 +264,14 @@ test_fuzz_proto_version_SOURCES = \
  test/fuzz/proto/version.cpp \
  test/fuzz/proto/version.pb.cc \
  test/fuzz/util/net.cpp
+
+test_fuzz_proto_validation_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(BOOST_CPPFLAGS) -Ilibprotobuf-mutator
+test_fuzz_proto_validation_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+test_fuzz_proto_validation_LDADD = $(PROTO_FUZZ_SUITE_LD_COMMON)
+test_fuzz_proto_validation_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) $(PTHREAD_FLAGS) $(RUNTIME_LDFLAGS) -Llibprotobuf-mutator/src -Llibprotobuf-mutator/src/libfuzzer  -lprotobuf -lprotobuf-mutator-libfuzzer -lprotobuf-mutator
+test_fuzz_proto_validation_SOURCES = \
+ test/fuzz/proto/validation.cpp \
+ test/fuzz/proto/validation.pb.cc
 
 test_fuzz_fuzz_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(BOOST_CPPFLAGS)
 test_fuzz_fuzz_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)

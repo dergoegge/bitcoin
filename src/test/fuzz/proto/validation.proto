@@ -1,0 +1,108 @@
+syntax = "proto2";
+
+package validation_proto_fuzz;
+
+message PrevOut {
+  // Since we fill in the txid on transactions via post processing, we enable
+  // the fuzzer to copy those txids into PrevOuts.
+  required string txid = 1;
+  required uint32 n = 2;
+}
+
+message Script {
+  required bytes raw = 1;
+}
+
+message TxInput {
+  required PrevOut prev_out = 1;
+  required Script script_sig = 2;
+  required uint32 sequence = 3;
+
+  // i.e scriptWitness
+  repeated bytes witness_stack = 4;
+}
+
+message TxOutput {
+  required int64 value = 1;
+  required Script script_pub_key = 2;
+}
+
+message Transaction {
+  // The txid (hex) is filled in by post processing
+  required string txid = 1;
+
+  // Actual tx data
+  repeated TxInput inputs = 2;
+  repeated TxOutput outputs = 3;
+
+  required int32 version = 4;
+  required uint32 lock_time = 5;
+}
+
+message BlockHeader {
+  required int32 version = 1; 
+  required string hash_prev_block = 2;
+  // Filled in by post processing
+  required string merkle_root = 3;
+  required uint32 time = 4;
+  required uint32 bits = 5;
+  required uint32 nonce = 6;
+
+  // Filled in by post processing
+  required string hash = 7;
+}
+
+message Block {
+  required BlockHeader header = 1;
+  repeated Transaction transactions = 2;
+}
+
+message CoinsView {
+  required bytes data_provider = 1;
+}
+
+message ProcessNewBlock {
+  required Block block = 1;
+  required bool force = 2;
+  required bool min_pow_checked = 3;
+}
+
+message ProcessNewHeaders {
+  repeated BlockHeader headers = 1;
+  required bool min_pow_checked = 2;
+}
+
+message ValidationAction {
+  optional int64 mock_time = 1;
+  oneof action {
+    ProcessNewBlock process_new_block = 2;
+    ProcessNewHeaders process_new_headers = 3;
+	Transaction process_transaction = 4;
+  }
+}
+
+message MempoolLimits {
+  optional uint32 ancestor_count_limit = 1;
+  optional uint32 ancestor_size_limit = 2;
+  optional uint32 descendant_count_limit = 3;
+  optional uint32 descendant_size_limit = 4;
+}
+
+message MempoolOptions {
+  optional int64 max_size_bytes = 1;
+  optional uint32 expiry_hours = 2;
+  optional int64 incremental_relay_feerate = 3;
+  optional int64 min_relay_feerate = 4;
+  optional int64 dust_relay_feerate = 5;
+  optional int32 max_datacarrier_bytes = 6;
+  optional bool permit_bare_multisig = 7;
+  optional bool require_standard = 8;
+  optional bool full_rbf = 9;
+  required MempoolLimits limits = 10;
+}
+
+message FuzzValidation {
+  // No mempool if not present
+  optional MempoolOptions mempool_options = 1;
+  repeated ValidationAction actions = 2;
+}
