@@ -1174,7 +1174,7 @@ Sock::EventsPerSock CConnman::GenerateWaitSockets(Span<CNode* const> nodes)
         // * Hand off all complete messages to the processor, to be handled without
         //   blocking here.
 
-        bool select_recv = !pnode->fPauseRecv;
+        bool select_recv = !pnode->IsReceivingPaused();
         bool select_send{!pnode->IsSendQueueEmpty()};
 
         LOCK(pnode->m_sock_mutex);

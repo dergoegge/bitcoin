@@ -404,10 +404,14 @@ public:
     std::atomic<int> nRefCount{0};
 
     const uint64_t nKeyedNetGroup;
-    std::atomic_bool fPauseRecv{false};
     std::atomic_bool fPauseSend{false};
 
     const ConnectionType m_conn_type;
+
+    bool IsReceivingPaused() const
+    {
+        return fPauseRecv;
+    }
 
     /** Move all messages from the received queue to the processing queue. */
     void MarkReceivedMsgsForProcessing()
@@ -630,6 +634,8 @@ private:
 
     /** Last measured round-trip time. Used only for RPC/GUI stats/debugging.*/
     std::atomic<std::chrono::microseconds> m_last_ping_time{0us};
+
+    std::atomic_bool fPauseRecv{false};
 
     const size_t m_recv_flood_size;
     std::list<CNetMessage> vRecvMsg; // Used only by SocketHandler thread
