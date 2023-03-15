@@ -371,9 +371,6 @@ public:
     std::shared_ptr<Sock> m_sock GUARDED_BY(m_sock_mutex);
 
     Mutex m_sock_mutex;
-    Mutex cs_vRecv;
-
-    uint64_t nRecvBytes GUARDED_BY(cs_vRecv){0};
 
     std::atomic<std::chrono::seconds> m_last_send{0s};
     std::atomic<std::chrono::seconds> m_last_recv{0s};
@@ -636,6 +633,8 @@ private:
 
     const size_t m_recv_flood_size;
     std::list<CNetMessage> vRecvMsg; // Used only by SocketHandler thread
+    Mutex cs_vRecv;
+    uint64_t nRecvBytes GUARDED_BY(cs_vRecv){0};
 
     Mutex m_msg_process_queue_mutex;
     std::list<CNetMessage> m_msg_process_queue GUARDED_BY(m_msg_process_queue_mutex);
