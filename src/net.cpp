@@ -2706,8 +2706,7 @@ CNode::CNode(NodeId idIn,
              ConnectionType conn_type_in,
              bool inbound_onion,
              CNodeOptions&& node_opts)
-    : m_deserializer{std::make_unique<V1TransportDeserializer>(V1TransportDeserializer(Params(), idIn, SER_NETWORK, INIT_PROTO_VERSION))},
-      m_serializer{std::make_unique<V1TransportSerializer>(V1TransportSerializer())},
+    : m_serializer{std::make_unique<V1TransportSerializer>(V1TransportSerializer())},
       m_sock{sock},
       m_connected{GetTime<std::chrono::seconds>()},
       addr{addrIn},
@@ -2721,7 +2720,8 @@ CNode::CNode(NodeId idIn,
       nLocalHostNonce{nLocalHostNonceIn},
       m_permission_flags{node_opts.permission_flags},
       m_recv_flood_size{node_opts.recv_flood_size},
-      m_i2p_sam_session{std::move(node_opts.i2p_sam_session)}
+      m_i2p_sam_session{std::move(node_opts.i2p_sam_session)},
+      m_deserializer{std::make_unique<V1TransportDeserializer>(V1TransportDeserializer(Params(), idIn, SER_NETWORK, INIT_PROTO_VERSION))}
 {
     if (inbound_onion) assert(conn_type_in == ConnectionType::INBOUND);
 

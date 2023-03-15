@@ -357,7 +357,6 @@ struct CNodeOptions
 class CNode
 {
 public:
-    const std::unique_ptr<TransportDeserializer> m_deserializer; // Used only by SocketHandler thread
     const std::unique_ptr<const TransportSerializer> m_serializer;
 
     /**
@@ -673,6 +672,8 @@ private:
      * Otherwise this unique_ptr is empty.
      */
     std::unique_ptr<i2p::sam::Session> m_i2p_sam_session GUARDED_BY(m_sock_mutex);
+
+    const std::unique_ptr<TransportDeserializer> m_deserializer; // Used only by SocketHandler thread
 
     size_t SocketSendDataInternal(unsigned int max_buf_size)
         EXCLUSIVE_LOCKS_REQUIRED(m_send_queue_mutex, !m_sock_mutex);
