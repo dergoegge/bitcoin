@@ -434,7 +434,10 @@ public:
         EXCLUSIVE_LOCKS_REQUIRED(!m_msg_process_queue_mutex);
 
     size_t SocketSendData(unsigned int max_buf_size)
-        EXCLUSIVE_LOCKS_REQUIRED(cs_vSend, !m_sock_mutex);
+        EXCLUSIVE_LOCKS_REQUIRED(!cs_vSend, !m_sock_mutex)
+    {
+        return WITH_LOCK(cs_vSend, return SocketSendDataInternal(max_buf_size));
+    }
 
     size_t PushMessage(CSerializedNetMsg&& msg, unsigned int max_buf_size)
         EXCLUSIVE_LOCKS_REQUIRED(!cs_vSend, !m_sock_mutex);
@@ -658,6 +661,9 @@ private:
      * Otherwise this unique_ptr is empty.
      */
     std::unique_ptr<i2p::sam::Session> m_i2p_sam_session GUARDED_BY(m_sock_mutex);
+
+    size_t SocketSendDataInternal(unsigned int max_buf_size)
+        EXCLUSIVE_LOCKS_REQUIRED(cs_vSend, !m_sock_mutex);
 };
 
 /**

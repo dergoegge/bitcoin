@@ -1298,7 +1298,7 @@ void CConnman::SocketHandlerConnected(const std::vector<CNode*>& nodes,
 
         if (sendSet) {
             // Send data
-            size_t bytes_sent = WITH_LOCK(pnode->cs_vSend, return pnode->SocketSendData(nSendBufferMaxSize));
+            size_t bytes_sent{pnode->SocketSendData(nSendBufferMaxSize)};
             if (bytes_sent) RecordBytesSent(bytes_sent);
         }
 
@@ -2767,7 +2767,7 @@ std::optional<std::pair<CNetMessage, bool>> CNode::PollMessage()
     return std::make_pair(std::move(msgs.front()), !m_msg_process_queue.empty());
 }
 
-size_t CNode::SocketSendData(unsigned int max_buf_size)
+size_t CNode::SocketSendDataInternal(unsigned int max_buf_size)
 {
     auto it = vSendMsg.begin();
     size_t nSentSize = 0;
@@ -2846,7 +2846,7 @@ size_t CNode::PushMessage(CSerializedNetMsg&& msg, unsigned int max_buf_size)
         if (msg.data.size()) vSendMsg.push_back(std::move(msg.data));
 
         // If write queue empty, attempt "optimistic write"
-        if (optimisticSend) nBytesSent = SocketSendData(max_buf_size);
+        if (optimisticSend) nBytesSent = SocketSendDataInternal(max_buf_size);
     }
 
     return nBytesSent;
