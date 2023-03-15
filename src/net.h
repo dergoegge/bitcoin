@@ -401,7 +401,6 @@ public:
     // next time DisconnectNodes() runs
     std::atomic_bool fDisconnect{false};
     CSemaphoreGrant grantOutbound;
-    std::atomic<int> nRefCount{0};
 
     const uint64_t nKeyedNetGroup;
     std::atomic_bool fPauseSend{false};
@@ -660,6 +659,8 @@ private:
 
     mapMsgTypeSize mapSendBytesPerMsgType GUARDED_BY(m_send_queue_mutex);
     mapMsgTypeSize mapRecvBytesPerMsgType GUARDED_BY(cs_vRecv);
+
+    std::atomic<int> nRefCount{0};
 
     /**
      * If an I2P session is created per connection (for outbound transient I2P
