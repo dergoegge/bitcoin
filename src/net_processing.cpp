@@ -1959,7 +1959,7 @@ void PeerManagerImpl::NewPoWValidBlock(const CBlockIndex *pindex, const std::sha
         PeerRef peer{GetPeerRef(pnode->GetId())};
         if (!peer) return;
 
-        if (peer->m_greatest_common_version < INVALID_CB_NO_BAN_VERSION || pnode->fDisconnect)
+        if (peer->m_greatest_common_version < INVALID_CB_NO_BAN_VERSION || pnode->MarkedForDisconnect())
             return;
         ProcessBlockAvailability(pnode->GetId());
         CNodeState &state = *State(pnode->GetId());
@@ -2819,7 +2819,7 @@ void PeerManagerImpl::UpdatePeerStateForReceivedHeaders(CNode& pfrom,
     // Note that outbound block-relay peers are excluded from this protection, and
     // thus always subject to eviction under the bad/lagging chain logic.
     // See ChainSyncTimeoutState.
-    if (!pfrom.fDisconnect && pfrom.IsFullOutboundConn() && nodestate->pindexBestKnownBlock != nullptr) {
+    if (!pfrom.MarkedForDisconnect() && pfrom.IsFullOutboundConn() && nodestate->pindexBestKnownBlock != nullptr) {
         if (m_outbound_peers_with_protect_from_disconnect < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT && nodestate->pindexBestKnownBlock->nChainWork >= m_chainman.ActiveChain().Tip()->nChainWork && !nodestate->m_chain_sync.m_protect) {
             LogPrint(BCLog::NET, "Protecting outbound peer=%d from eviction\n", pfrom.GetId());
             nodestate->m_chain_sync.m_protect = true;
@@ -4941,7 +4941,7 @@ bool PeerManagerImpl::ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt
 
     const bool processed_orphan = ProcessOrphanTx(*peer);
 
-    if (pfrom->fDisconnect)
+    if (pfrom->MarkedForDisconnect())
         return false;
 
     if (processed_orphan) return true;
@@ -5072,7 +5072,7 @@ void PeerManagerImpl::EvictExtraOutboundPeers(std::chrono::seconds now)
         std::pair<NodeId, std::chrono::seconds> youngest_peer{-1, 0}, next_youngest_peer{-1, 0};
 
         m_connman.ForEachNode([&](CNode* pnode) {
-            if (!pnode->IsBlockOnlyConn() || pnode->fDisconnect) return;
+            if (!pnode->IsBlockOnlyConn() || pnode->MarkedForDisconnect()) return;
             if (pnode->GetId() > youngest_peer.first) {
                 next_youngest_peer = youngest_peer;
                 youngest_peer.first = pnode->GetId();
@@ -5121,7 +5121,7 @@ void PeerManagerImpl::EvictExtraOutboundPeers(std::chrono::seconds now)
 
             // Only consider outbound-full-relay peers that are not already
             // marked for disconnection
-            if (!pnode->IsFullOutboundConn() || pnode->fDisconnect) return;
+            if (!pnode->IsFullOutboundConn() || pnode->MarkedForDisconnect()) return;
             CNodeState *state = State(pnode->GetId());
             if (state == nullptr) return; // shouldn't be possible, but just in case
             // Don't evict our protected peers
@@ -5427,7 +5427,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
     if (MaybeDiscourageAndDisconnect(*pto, *peer)) return true;
 
     // Don't send anything until the version handshake is complete
-    if (!pto->fSuccessfullyConnected || pto->fDisconnect)
+    if (!pto->fSuccessfullyConnected || pto->MarkedForDisconnect())
         return true;
 
     // If we get here, the outgoing message serialization version is set and can't change.
@@ -5444,7 +5444,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
     MaybeSendPing(*pto, *peer, current_time);
 
     // MaybeSendPing may have marked peer for disconnection
-    if (pto->fDisconnect) return true;
+    if (pto->MarkedForDisconnect()) return true;
 
     MaybeSendAddr(*pto, *peer, current_time);
 

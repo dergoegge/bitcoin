@@ -45,7 +45,7 @@ void ConnmanTestMsg::Handshake(CNode& node,
     node.fPauseSend = false;
     connman.ProcessMessagesOnce(node);
     peerman.SendMessages(&node);
-    if (node.fDisconnect) return;
+    if (node.MarkedForDisconnect()) return;
     PeerStats peer_stats;
     assert(peerman.GetPeerStats(node.GetId(), peer_stats));
     assert(peer_stats.m_version == version);

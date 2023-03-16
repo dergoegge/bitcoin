@@ -1019,7 +1019,7 @@ void CConnman::DisconnectNodes()
         if (!fNetworkActive) {
             // Disconnect any connected nodes
             for (CNode* pnode : m_nodes) {
-                if (!pnode->fDisconnect) {
+                if (!pnode->MarkedForDisconnect()) {
                     LogPrint(BCLog::NET, "Network not active, dropping peer=%d\n", pnode->GetId());
                     pnode->Disconnect();
                 }
@@ -1030,7 +1030,7 @@ void CConnman::DisconnectNodes()
         std::vector<CNode*> nodes_copy = m_nodes;
         for (CNode* pnode : nodes_copy)
         {
-            if (pnode->fDisconnect)
+            if (pnode->MarkedForDisconnect())
             {
                 // remove from m_nodes
                 m_nodes.erase(remove(m_nodes.begin(), m_nodes.end(), pnode), m_nodes.end());
@@ -1205,7 +1205,7 @@ void CConnman::SocketHandlerConnected(const std::vector<CNode*>& nodes,
             else if (nBytes == 0)
             {
                 // socket closed gracefully
-                if (!pnode->fDisconnect) {
+                if (!pnode->MarkedForDisconnect()) {
                     LogPrint(BCLog::NET, "socket closed for peer=%d\n", pnode->GetId());
                 }
                 pnode->CloseSocketDisconnect();
@@ -1216,7 +1216,7 @@ void CConnman::SocketHandlerConnected(const std::vector<CNode*>& nodes,
                 int nErr = WSAGetLastError();
                 if (nErr != WSAEWOULDBLOCK && nErr != WSAEMSGSIZE && nErr != WSAEINTR && nErr != WSAEINPROGRESS)
                 {
-                    if (!pnode->fDisconnect) {
+                    if (!pnode->MarkedForDisconnect()) {
                         LogPrint(BCLog::NET, "socket recv error for peer=%d: %s\n", pnode->GetId(), NetworkErrorString(nErr));
                     }
                     pnode->CloseSocketDisconnect();
@@ -1439,7 +1439,7 @@ int CConnman::GetExtraFullOutboundCount() const
     {
         LOCK(m_nodes_mutex);
         for (const CNode* pnode : m_nodes) {
-            if (pnode->fSuccessfullyConnected && !pnode->fDisconnect && pnode->IsFullOutboundConn()) {
+            if (pnode->fSuccessfullyConnected && !pnode->MarkedForDisconnect() && pnode->IsFullOutboundConn()) {
                 ++full_outbound_peers;
             }
         }
@@ -1453,7 +1453,7 @@ int CConnman::GetExtraBlockRelayCount() const
     {
         LOCK(m_nodes_mutex);
         for (const CNode* pnode : m_nodes) {
-            if (pnode->fSuccessfullyConnected && !pnode->fDisconnect && pnode->IsBlockOnlyConn()) {
+            if (pnode->fSuccessfullyConnected && !pnode->MarkedForDisconnect() && pnode->IsBlockOnlyConn()) {
                 ++block_relay_peers;
             }
         }
@@ -1919,7 +1919,7 @@ void CConnman::ThreadMessageHandler()
             const NodesSnapshot snap{*this, /*shuffle=*/true};
 
             for (CNode* pnode : snap.Nodes()) {
-                if (pnode->fDisconnect)
+                if (pnode->MarkedForDisconnect())
                     continue;
 
                 // Receive messages
@@ -2850,7 +2850,7 @@ size_t CNode::PushMessage(CSerializedNetMsg&& msg, unsigned int max_buf_size)
 
 bool CConnman::NodeFullyConnected(const CNode* pnode)
 {
-    return pnode && pnode->fSuccessfullyConnected && !pnode->fDisconnect;
+    return pnode && pnode->fSuccessfullyConnected && !pnode->MarkedForDisconnect();
 }
 
 void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
