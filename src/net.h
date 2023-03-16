@@ -381,6 +381,10 @@ public:
     // Setting fDisconnect to true will cause the node to be disconnected the
     // next time DisconnectNodes() runs
     std::atomic_bool fDisconnect{false};
+    void Disconnect() { fDisconnect = true; }
+    bool MarkedForDisconnect() const { return fDisconnect; };
+    void TestOnlyReconnect() { fDisconnect = false; };
+
     CSemaphoreGrant grantOutbound;
 
     std::atomic_bool fPauseSend{false};
