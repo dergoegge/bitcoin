@@ -100,32 +100,25 @@ CAddress ConsumeAddress(FuzzedDataProvider& fuzzed_data_provider) noexcept;
 template <bool ReturnUniquePtr = false>
 auto ConsumeNode(FuzzedDataProvider& fuzzed_data_provider, const std::optional<NodeId>& node_id_in = std::nullopt) noexcept
 {
-    const NodeId node_id = node_id_in.value_or(fuzzed_data_provider.ConsumeIntegralInRange<NodeId>(0, std::numeric_limits<NodeId>::max()));
     const auto sock = std::make_shared<FuzzedSock>(fuzzed_data_provider);
-    const CAddress address = ConsumeAddress(fuzzed_data_provider);
-    const CAddress addr_bind = ConsumeAddress(fuzzed_data_provider);
-    const std::string addr_name = fuzzed_data_provider.ConsumeRandomLengthString(64);
     const ConnectionType conn_type = fuzzed_data_provider.PickValueInArray(ALL_CONNECTION_TYPES);
-    const bool inbound_onion{conn_type == ConnectionType::INBOUND ? fuzzed_data_provider.ConsumeBool() : false};
-    NetPermissionFlags permission_flags = ConsumeWeakEnum(fuzzed_data_provider, ALL_NET_PERMISSION_FLAGS);
+
+    ConnectionContext fuzzed_ctx{
+        .id = node_id_in.value_or(fuzzed_data_provider.ConsumeIntegralInRange<NodeId>(0, std::numeric_limits<NodeId>::max())),
+        // TODO add option to use ConsumeTime here
+        .connected = GetTime<std::chrono::seconds>(),
+        .addr = ConsumeAddress(fuzzed_data_provider),
+        .addr_bind = ConsumeAddress(fuzzed_data_provider),
+        .addr_name = fuzzed_data_provider.ConsumeRandomLengthString(64),
+        .permission_flags = ConsumeWeakEnum(fuzzed_data_provider, ALL_NET_PERMISSION_FLAGS),
+        .conn_type = conn_type,
+        .is_inbound_onion = conn_type == ConnectionType::INBOUND ? fuzzed_data_provider.ConsumeBool() : false,
+    };
+
     if constexpr (ReturnUniquePtr) {
-        return std::make_unique<CNode>(node_id,
-                                       sock,
-                                       address,
-                                       addr_bind,
-                                       addr_name,
-                                       conn_type,
-                                       inbound_onion,
-                                       CNodeOptions{ .permission_flags = permission_flags });
+        return std::make_unique<CNode>(std::move(fuzzed_ctx), sock);
     } else {
-        return CNode{node_id,
-                     sock,
-                     address,
-                     addr_bind,
-                     addr_name,
-                     conn_type,
-                     inbound_onion,
-                     CNodeOptions{ .permission_flags = permission_flags }};
+        return CNode{std::move(fuzzed_ctx), sock};
     }
 }
 inline std::unique_ptr<CNode> ConsumeNodeAsUniquePtr(FuzzedDataProvider& fdp, const std::optional<NodeId>& node_id_in = std::nullopt) { return ConsumeNode<true>(fdp, node_id_in); }

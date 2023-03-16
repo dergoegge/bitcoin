@@ -547,26 +547,29 @@ CNode* CConnman::ConnectNode(CAddress addrConnect, const char *pszDest, bool fCo
         return nullptr;
     }
 
-    // Add node
-    NodeId id = GetNewNodeId();
     if (!addr_bind.IsValid()) {
         addr_bind = GetBindAddress(*sock);
     }
-    CNode* pnode = new CNode(id,
-                             std::move(sock),
-                             addrConnect,
-                             addr_bind,
-                             pszDest ? pszDest : "",
-                             conn_type,
-                             /*inbound_onion=*/false,
-                             CNodeOptions{
+
+    // Add node
+    CNode* pnode = new CNode(ConnectionContext{
+                                 .id = GetNewNodeId(),
+                                 .connected = GetTime<std::chrono::seconds>(),
+                                 .addr = addrConnect,
+                                 .addr_bind = addr_bind,
+                                 .addr_name = pszDest ? pszDest : "",
+                                 .conn_type = conn_type,
+                                 .is_inbound_onion = false,
+                             },
+                             std::move(sock), 
+							 CNodeOptions{
                                  .i2p_sam_session = std::move(i2p_transient_session),
                                  .recv_flood_size = nReceiveFloodSize,
                              });
     pnode->AddRef();
 
     // We're making a new connection, harvest entropy from the time (and our peer count)
-    RandAddEvent((uint32_t)id);
+    RandAddEvent((uint32_t)pnode->GetId());
 
     return pnode;
 }
@@ -927,24 +930,24 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
         }
     }
 
-    NodeId id = GetNewNodeId();
 
     ServiceFlags nodeServices = nLocalServices;
     if (NetPermissions::HasFlag(permission_flags, NetPermissionFlags::BloomFilter)) {
         nodeServices = static_cast<ServiceFlags>(nodeServices | NODE_BLOOM);
     }
 
-    const bool inbound_onion = std::find(m_onion_binds.begin(), m_onion_binds.end(), addr_bind) != m_onion_binds.end();
-    CNode* pnode = new CNode(id,
-                             std::move(sock),
-                             addr,
-                             addr_bind,
-                             /*addrNameIn=*/"",
-                             ConnectionType::INBOUND,
-                             inbound_onion,
-                             CNodeOptions{
+    CNode* pnode = new CNode(ConnectionContext{
+                                 .id = GetNewNodeId(),
+                                 .connected = GetTime<std::chrono::seconds>(),
+                                 .addr = addr,
+                                 .addr_bind = addr_bind,
+                                 .addr_name = "",
                                  .permission_flags = permission_flags,
-                                 .prefer_evict = discouraged,
+                                 .conn_type = ConnectionType::INBOUND,
+                                 .is_inbound_onion = std::find(m_onion_binds.begin(), m_onion_binds.end(), addr_bind) != m_onion_binds.end(),
+                             },
+                             std::move(sock),
+							 CNodeOptions{
                                  .recv_flood_size = nReceiveFloodSize,
                              });
     pnode->AddRef();
@@ -968,7 +971,7 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
         /*conn_type=*/ConnectionType::INBOUND);
 
     // We received a new connection, harvest entropy from the time (and our peer count)
-    RandAddEvent((uint32_t)id);
+    RandAddEvent((uint32_t)pnode->GetId());
 }
 
 bool CConnman::AddConnection(const std::string& address, ConnectionType conn_type)
@@ -2645,29 +2648,24 @@ ServiceFlags CConnman::GetLocalServices() const
     return nLocalServices;
 }
 
-CNode::CNode(NodeId idIn,
+CNode::CNode(ConnectionContext&& conn_ctx,
              std::shared_ptr<Sock> sock,
-             const CAddress& addrIn,
-             const CAddress& addrBindIn,
-             const std::string& addrNameIn,
-             ConnectionType conn_type_in,
-             bool inbound_onion,
              CNodeOptions&& node_opts)
-    : m_connected{GetTime<std::chrono::seconds>()},
-      addr{addrIn},
-      addrBind{addrBindIn},
-      m_addr_name{addrNameIn.empty() ? addr.ToStringAddrPort() : addrNameIn},
-      m_inbound_onion{inbound_onion},
-      m_conn_type{conn_type_in},
-      id{idIn},
-      m_permission_flags{node_opts.permission_flags},
+    : m_connected{conn_ctx.connected},
+      addr{conn_ctx.addr},
+      addrBind{conn_ctx.addr_bind},
+      m_addr_name{conn_ctx.addr_name.empty() ? addr.ToStringAddrPort() : conn_ctx.addr_name},
+      m_inbound_onion{conn_ctx.is_inbound_onion},
+      m_conn_type{conn_ctx.conn_type},
+      id{conn_ctx.id},
+      m_permission_flags{conn_ctx.permission_flags},
       m_recv_flood_size{node_opts.recv_flood_size},
       m_sock{sock},
       m_i2p_sam_session{std::move(node_opts.i2p_sam_session)},
-      m_deserializer{std::make_unique<V1TransportDeserializer>(V1TransportDeserializer(Params(), idIn, SER_NETWORK, INIT_PROTO_VERSION))},
+      m_deserializer{std::make_unique<V1TransportDeserializer>(V1TransportDeserializer(Params(), conn_ctx.id, SER_NETWORK, INIT_PROTO_VERSION))},
       m_serializer{std::make_unique<V1TransportSerializer>(V1TransportSerializer())}
 {
-    if (inbound_onion) assert(conn_type_in == ConnectionType::INBOUND);
+    if (conn_ctx.is_inbound_onion) assert(conn_ctx.conn_type == ConnectionType::INBOUND);
 
     for (const std::string &msg : getAllNetMessageTypes())
         mapRecvBytesPerMsgType[msg] = 0;

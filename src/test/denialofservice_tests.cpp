@@ -64,13 +64,14 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
     // Mock an outbound peer
     CAddress addr1(ip(0xa0b0c001), NODE_NONE);
     NodeId id{0};
-    CNode dummyNode1{id++,
-                     /*sock=*/nullptr,
-                     addr1,
-                     CAddress(),
-                     /*addrNameIn=*/"",
-                     ConnectionType::OUTBOUND_FULL_RELAY,
-                     /*inbound_onion=*/false};
+    CNode dummyNode1{ConnectionContext{
+                         .id = id++,
+                         .connected = GetTime<std::chrono::seconds>(),
+                         .addr = addr1,
+                         .conn_type = ConnectionType::OUTBOUND_FULL_RELAY,
+                         .is_inbound_onion = false,
+                     },
+                     /*sock=*/nullptr};
 
     connman->Handshake(
         /*node=*/dummyNode1,
@@ -114,13 +115,14 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
 static void AddRandomOutboundPeer(NodeId& id, std::vector<CNode*>& vNodes, PeerManager& peerLogic, ConnmanTestMsg& connman, ConnectionType connType, EvictionManager& evictionman)
 {
     CAddress addr(ip(g_insecure_rand_ctx.randbits(32)), NODE_NONE);
-    vNodes.emplace_back(new CNode{id++,
-                                  /*sock=*/nullptr,
-                                  addr,
-                                  CAddress(),
-                                  /*addrNameIn=*/"",
-                                  connType,
-                                  /*inbound_onion=*/false});
+    vNodes.emplace_back(new CNode{ConnectionContext{
+                                      .id = id++,
+                                      .connected = GetTime<std::chrono::seconds>(),
+                                      .addr = addr,
+                                      .conn_type = connType,
+                                      .is_inbound_onion = false,
+                                  },
+                                  /*sock=*/nullptr});
     CNode &node = *vNodes.back();
 
     evictionman.AddCandidate(
@@ -312,15 +314,19 @@ BOOST_AUTO_TEST_CASE(peer_discouragement)
 
     std::array<CNode*, 3> nodes;
 
-    banman->ClearBanned();
     NodeId id{0};
-    nodes[0] = new CNode{id++,
-                         /*sock=*/nullptr,
-                         addr[0],
-                         CAddress(),
-                         /*addrNameIn=*/"",
-                         ConnectionType::INBOUND,
-                         /*inbound_onion=*/false};
+    auto conn_ctx = [&addr, &id](ConnectionType conn_type) {
+        return ConnectionContext{
+            .id = id++,
+            .connected = GetTime<std::chrono::seconds>(),
+            .addr = addr[id],
+            .conn_type = conn_type,
+            .is_inbound_onion = false,
+        };
+    };
+
+    banman->ClearBanned();
+    nodes[0] = new CNode{conn_ctx(ConnectionType::INBOUND), /*sock=*/nullptr};
     connman->AddTestNode(*nodes[0]);
     connman->Handshake(*nodes[0], true, ServiceFlags(NODE_NETWORK | NODE_WITNESS), ServiceFlags(NODE_NETWORK | NODE_WITNESS), PROTOCOL_VERSION, true);
     peerLogic->UnitTestMisbehaving(nodes[0]->GetId(), DISCOURAGEMENT_THRESHOLD); // Should be discouraged
@@ -330,13 +336,7 @@ BOOST_AUTO_TEST_CASE(peer_discouragement)
     BOOST_CHECK(nodes[0]->fDisconnect);
     BOOST_CHECK(!banman->IsDiscouraged(other_addr)); // Different address, not discouraged
 
-    nodes[1] = new CNode{id++,
-                         /*sock=*/nullptr,
-                         addr[1],
-                         CAddress(),
-                         /*addrNameIn=*/"",
-                         ConnectionType::INBOUND,
-                         /*inbound_onion=*/false};
+    nodes[1] = new CNode{conn_ctx(ConnectionType::INBOUND), /*sock=*/nullptr};
     connman->AddTestNode(*nodes[1]);
     connman->Handshake(*nodes[1], true, ServiceFlags(NODE_NETWORK | NODE_WITNESS), ServiceFlags(NODE_NETWORK | NODE_WITNESS), PROTOCOL_VERSION, true);
     peerLogic->UnitTestMisbehaving(nodes[1]->GetId(), DISCOURAGEMENT_THRESHOLD - 1);
@@ -357,13 +357,7 @@ BOOST_AUTO_TEST_CASE(peer_discouragement)
 
     // Make sure non-IP peers are discouraged and disconnected properly.
 
-    nodes[2] = new CNode{id++,
-                         /*sock=*/nullptr,
-                         addr[2],
-                         CAddress(),
-                         /*addrNameIn=*/"",
-                         ConnectionType::OUTBOUND_FULL_RELAY,
-                         /*inbound_onion=*/false};
+    nodes[2] = new CNode{conn_ctx(ConnectionType::OUTBOUND_FULL_RELAY), /*sock=*/nullptr};
     connman->AddTestNode(*nodes[2]);
     connman->Handshake(*nodes[2], true, ServiceFlags(NODE_NETWORK | NODE_WITNESS), ServiceFlags(NODE_NETWORK | NODE_WITNESS), PROTOCOL_VERSION, true);
     peerLogic->UnitTestMisbehaving(nodes[2]->GetId(), DISCOURAGEMENT_THRESHOLD);
@@ -404,13 +398,14 @@ BOOST_AUTO_TEST_CASE(DoS_bantime)
 
     CAddress addr(ip(0xa0b0c001), NODE_NONE);
     NodeId id{0};
-    CNode* dummyNode = new CNode{id++,
-                                 /*sock=*/nullptr,
-                                 addr,
-                                 CAddress(),
-                                 /*addrNameIn=*/"",
-                                 ConnectionType::INBOUND,
-                                 /*inbound_onion=*/false};
+    CNode* dummyNode = new CNode{ConnectionContext{
+                                     .id = id++,
+                                     .connected = GetTime<std::chrono::seconds>(),
+                                     .addr = addr,
+                                     .conn_type = ConnectionType::INBOUND,
+                                     .is_inbound_onion = false,
+                                 },
+                                 /*sock=*/nullptr};
     connman->AddTestNode(*dummyNode);
     connman->Handshake(*dummyNode, true, ServiceFlags(NODE_NETWORK | NODE_WITNESS), ServiceFlags(NODE_NETWORK | NODE_WITNESS), PROTOCOL_VERSION, true);
 

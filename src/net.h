@@ -345,10 +345,22 @@ public:
 
 struct CNodeOptions
 {
-    NetPermissionFlags permission_flags = NetPermissionFlags::None;
     std::unique_ptr<i2p::sam::Session> i2p_sam_session = nullptr;
     bool prefer_evict = false;
     size_t recv_flood_size{DEFAULT_MAXRECEIVEBUFFER * 1000};
+};
+
+/** ConnectionContext holds all constant data connection that is available from
+ * connection establishment. */
+struct ConnectionContext {
+    const NodeId id;
+    const std::chrono::seconds connected;
+    const CAddress addr;
+    const CAddress addr_bind;
+    const std::string addr_name;
+    const NetPermissionFlags permission_flags{NetPermissionFlags::None};
+    const ConnectionType conn_type;
+    const bool is_inbound_onion;
 };
 
 /** Information about a peer */
@@ -514,13 +526,8 @@ public:
      */
     Network ConnectedThroughNetwork() const;
 
-    CNode(NodeId id,
+    CNode(ConnectionContext&& conn_ctx,
           std::shared_ptr<Sock> sock,
-          const CAddress& addrIn,
-          const CAddress& addrBindIn,
-          const std::string& addrNameIn,
-          ConnectionType conn_type_in,
-          bool inbound_onion,
           CNodeOptions&& node_opts = {});
     CNode(const CNode&) = delete;
     CNode& operator=(const CNode&) = delete;
