@@ -200,7 +200,7 @@ BOOST_AUTO_TEST_CASE(stale_tip_peer_management)
     // Last added node should get marked for eviction
     BOOST_CHECK(vNodes.back()->fDisconnect == true);
 
-    vNodes.back()->fDisconnect = false;
+    vNodes.back()->TestOnlyReconnect();
 
     // Update the last announced block time for the last
     // peer, and check that the next newest node gets evicted.
@@ -270,7 +270,7 @@ BOOST_AUTO_TEST_CASE(block_relay_only_eviction)
 
     // Update the last block time for the extra peer,
     // and check that the next youngest peer gets evicted.
-    vNodes.back()->fDisconnect = false;
+    vNodes.back()->TestOnlyReconnect();
     evictionman->UpdateLastBlockTime(vNodes.back()->GetId(), GetTime<std::chrono::seconds>());
 
     peerLogic->CheckForStaleTipAndEvictPeers();
