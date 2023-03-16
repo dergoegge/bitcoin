@@ -223,16 +223,16 @@ static int GetnScore(const CService& addr)
 }
 
 // Is our peer's addrLocal potentially useful as an external IP source?
-bool IsPeerAddrLocalGood(CNode *pnode)
+bool IsPeerAddrLocalGood(Connection* conn)
 {
-    CService addrLocal = pnode->GetAddrLocal();
-    return fDiscover && pnode->GetAddr().IsRoutable() && addrLocal.IsRoutable() &&
+    CService addrLocal = conn->GetAddrLocal();
+    return fDiscover && conn->GetAddr().IsRoutable() && addrLocal.IsRoutable() &&
            IsReachable(addrLocal.GetNetwork());
 }
 
-std::optional<CService> GetLocalAddrForPeer(CNode& node)
+std::optional<CService> GetLocalAddrForPeer(Connection& conn)
 {
-    CService addrLocal{GetLocalAddress(node.GetAddr())};
+    CService addrLocal{GetLocalAddress(conn.GetAddr())};
     if (gArgs.GetBoolArg("-addrmantest", false)) {
         // use IPv4 loopback during addrmantest
         addrLocal = CService(LookupNumeric("127.0.0.1", GetListenPort()));
@@ -241,24 +241,24 @@ std::optional<CService> GetLocalAddrForPeer(CNode& node)
     // tells us that it sees us as in case it has a better idea of our
     // address than we do.
     FastRandomContext rng;
-    if (IsPeerAddrLocalGood(&node) && (!addrLocal.IsRoutable() ||
+    if (IsPeerAddrLocalGood(&conn) && (!addrLocal.IsRoutable() ||
          rng.randbits((GetnScore(addrLocal) > LOCAL_MANUAL) ? 3 : 1) == 0))
     {
-        if (node.IsInboundConn()) {
+        if (conn.IsInboundConn()) {
             // For inbound connections, assume both the address and the port
             // as seen from the peer.
-            addrLocal = CService{node.GetAddrLocal()};
+            addrLocal = CService{conn.GetAddrLocal()};
         } else {
             // For outbound connections, assume just the address as seen from
             // the peer and leave the port in `addrLocal` as returned by
             // `GetLocalAddress()` above. The peer has no way to observe our
             // listening port when we have initiated the connection.
-            addrLocal.SetIP(node.GetAddrLocal());
+            addrLocal.SetIP(conn.GetAddrLocal());
         }
     }
     if (addrLocal.IsRoutable() || gArgs.GetBoolArg("-addrmantest", false))
     {
-        LogPrint(BCLog::NET, "Advertising address %s to peer=%d\n", addrLocal.ToStringAddrPort(), node.GetId());
+        LogPrint(BCLog::NET, "Advertising address %s to peer=%d\n", addrLocal.ToStringAddrPort(), conn.GetId());
         return addrLocal;
     }
     // Address is unroutable. Don't advertise.

@@ -47,6 +47,7 @@
 class AddrMan;
 class BanMan;
 class CNode;
+class Connection;
 class CScheduler;
 struct bilingual_str;
 
@@ -148,9 +149,9 @@ enum
     LOCAL_MAX
 };
 
-bool IsPeerAddrLocalGood(CNode *pnode);
+bool IsPeerAddrLocalGood(Connection* conn);
 /** Returns a local address that we should advertise to this peer. */
-std::optional<CService> GetLocalAddrForPeer(CNode& node);
+std::optional<CService> GetLocalAddrForPeer(Connection& conn);
 
 /**
  * Mark a network as reachable or unreachable (no automatic connects to it)
