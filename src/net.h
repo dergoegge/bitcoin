@@ -357,8 +357,6 @@ struct CNodeOptions
 class CNode
 {
 public:
-    const std::unique_ptr<const TransportSerializer> m_serializer;
-
     /**
      * Socket used for communication with the node.
      * May not own a Sock object (after `CloseSocketDisconnect()` or during tests).
@@ -409,6 +407,11 @@ public:
     bool IsReceivingPaused() const
     {
         return fPauseRecv;
+    }
+
+    const TransportSerializer& GetSerializer() const
+    {
+        return *Assert(m_serializer);
     }
 
     /** Move all messages from the received queue to the processing queue. */
@@ -674,6 +677,7 @@ private:
     std::unique_ptr<i2p::sam::Session> m_i2p_sam_session GUARDED_BY(m_sock_mutex);
 
     const std::unique_ptr<TransportDeserializer> m_deserializer; // Used only by SocketHandler thread
+    const std::unique_ptr<const TransportSerializer> m_serializer;
 
     size_t SocketSendDataInternal(unsigned int max_buf_size)
         EXCLUSIVE_LOCKS_REQUIRED(m_send_queue_mutex, !m_sock_mutex);
