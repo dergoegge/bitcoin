@@ -531,7 +531,7 @@ public:
     /** Implement NetEventsInterface */
     void InitializeNode(Connection& connection, ServiceFlags our_services) override
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_version_nonces_mutex);
-    void FinalizeNode(const CNode& node) override
+    void FinalizeNode(const Connection& conn) override
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_headers_presync_mutex, !m_version_nonces_mutex);
     bool ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt) override
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_recent_confirmed_transactions_mutex, !m_most_recent_block_mutex, !m_headers_presync_mutex, !m_version_nonces_mutex, g_msgproc_mutex);
@@ -1529,9 +1529,9 @@ void PeerManagerImpl::ReattemptInitialBroadcast(CScheduler& scheduler)
     scheduler.scheduleFromNow([&] { ReattemptInitialBroadcast(scheduler); }, delta);
 }
 
-void PeerManagerImpl::FinalizeNode(const CNode& node)
+void PeerManagerImpl::FinalizeNode(const Connection& conn)
 {
-    NodeId nodeid = node.GetId();
+    NodeId nodeid = conn.GetId();
     WITH_LOCK(m_version_nonces_mutex, m_version_nonces.erase(nodeid));
     int misbehavior{0};
     {
@@ -1579,12 +1579,12 @@ void PeerManagerImpl::FinalizeNode(const CNode& node)
         assert(m_orphanage.Size() == 0);
     }
     } // cs_main
-    if (node.IsSuccessfullyConnected() && misbehavior == 0 &&
-        !node.IsBlockOnlyConn() && !node.IsInboundConn()) {
+    if (conn.IsSuccessfullyConnected() && misbehavior == 0 &&
+        !conn.IsBlockOnlyConn() && !conn.IsInboundConn()) {
         // Only change visible addrman state for full outbound peers.  We don't
         // call Connected() for feeler connections since they don't have
         // IsSuccessfullyConnected() set.
-        m_addrman.Connected(node.GetAddr());
+        m_addrman.Connected(conn.GetAddr());
     }
     {
         LOCK(m_headers_presync_mutex);
