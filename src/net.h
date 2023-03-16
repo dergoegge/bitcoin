@@ -384,7 +384,7 @@ public:
     bool MarkedForDisconnect() const { return m_disconnect; };
     void TestOnlyReconnect() { m_disconnect = false; };
 
-    CSemaphoreGrant grantOutbound;
+	CSemaphoreGrant& GetGrantOutbound() { return grantOutbound; };
 
     bool IsSendingPaused() const { return fPauseSend; }
     void TestOnlySetPauseSending(bool pause) { fPauseSend = pause; };
@@ -598,6 +598,8 @@ private:
 
     std::atomic_bool fPauseRecv{false};
     std::atomic_bool fPauseSend{false};
+
+    CSemaphoreGrant grantOutbound;
 
     const size_t m_recv_flood_size;
     std::list<CNetMessage> vRecvMsg; // Used only by SocketHandler thread

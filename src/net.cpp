@@ -1039,7 +1039,7 @@ void CConnman::DisconnectNodes()
                 m_evictionman.RemoveCandidate(pnode->GetId());
 
                 // release outbound grant (if any)
-                pnode->grantOutbound.Release();
+                pnode->GetGrantOutbound().Release();
 
                 // close socket and cleanup
                 pnode->CloseSocketDisconnect();
@@ -1882,7 +1882,7 @@ void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFai
     if (!pnode)
         return;
     if (grantOutbound)
-        grantOutbound->MoveTo(pnode->grantOutbound);
+        grantOutbound->MoveTo(pnode->GetGrantOutbound());
 
     m_msgproc->InitializeNode(*pnode, nLocalServices);
     {
