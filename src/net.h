@@ -363,30 +363,82 @@ struct ConnectionContext {
     const bool is_inbound_onion;
 };
 
-/** Information about a peer */
-class CNode
+class Connection
 {
 public:
-    std::chrono::seconds GetConnected() const { return m_ctx.connected; }
-	const CAddress& GetAddr() const { return m_ctx.addr; }
-	const CAddress& GetAddrBind() const { return m_ctx.addr_bind; }
-    const std::string& GetAddrName() const { return m_ctx.addr_name; }
-    bool IsInboundOnionConn() const { return m_ctx.is_inbound_onion; }
+    virtual NodeId GetId() const = 0;
+    virtual std::chrono::seconds GetConnected() const = 0;
+    virtual const CAddress& GetAddr() const = 0;
+    virtual const CAddress& GetAddrBind() const = 0;
+    virtual const std::string& GetAddrName() const = 0;
+    virtual bool HasPermission(NetPermissionFlags permission) const = 0;
+    virtual bool IsInboundOnionConn() const = 0;
 
-    bool HasPermission(NetPermissionFlags permission) const {
+    virtual void MarkAsSuccessfullyConnected() = 0;
+    virtual bool IsSuccessfullyConnected() const = 0;
+
+    virtual void Disconnect() = 0;
+    virtual bool MarkedForDisconnect() const = 0;
+
+    virtual bool IsSendingPaused() const = 0;
+
+    virtual size_t PushMessage(CSerializedNetMsg&& msg, unsigned int max_buf_size) = 0;
+    virtual std::optional<std::pair<CNetMessage, bool>> PollMessage() = 0;
+
+    virtual bool IsOutboundOrBlockRelayConn() const = 0;
+    virtual bool IsFullOutboundConn() const = 0;
+    virtual bool IsManualConn() const = 0;
+    virtual bool IsBlockOnlyConn() const = 0;
+    virtual bool IsFeelerConn() const = 0;
+    virtual bool IsAddrFetchConn() const = 0;
+    virtual bool IsInboundConn() const = 0;
+    virtual bool ExpectServicesFromConn() const = 0;
+
+    /**
+     * Get the connection's network.
+     *
+     * Returns Network::NET_ONION for *inbound* onion connections,
+     * and CNetAddr::GetNetClass() otherwise. The latter cannot be used directly
+     * because it doesn't detect the former, and it's not the responsibility of
+     * the CNetAddr class to know the actual network a peer is connected through.
+     *
+     * @return network the peer connected through.
+     */
+    virtual Network ConnectedThroughNetwork() const = 0;
+
+    virtual CService GetAddrLocal() const = 0;
+    virtual void SetAddrLocal(const CService& addrLocalIn) = 0;
+
+    virtual std::string ConnectionTypeAsString() const = 0;
+
+    /** A ping-pong round trip has completed successfully. Update latest ping time. */
+    virtual void PongReceived(std::chrono::microseconds ping_time) = 0;
+};
+
+/** Information about a peer */
+class CNode : public Connection
+{
+public:
+    std::chrono::seconds GetConnected() const override { return m_ctx.connected; }
+	const CAddress& GetAddr() const override { return m_ctx.addr; }
+	const CAddress& GetAddrBind() const override { return m_ctx.addr_bind; }
+    const std::string& GetAddrName() const override { return m_ctx.addr_name; }
+    bool IsInboundOnionConn() const override { return m_ctx.is_inbound_onion; }
+
+    bool HasPermission(NetPermissionFlags permission) const override {
         return NetPermissions::HasFlag(m_ctx.permission_flags, permission);
     }
 
-    void MarkAsSuccessfullyConnected() { m_successfully_connected = true; }
-    bool IsSuccessfullyConnected() const { return m_successfully_connected; }
+    void MarkAsSuccessfullyConnected() override { m_successfully_connected = true; }
+    bool IsSuccessfullyConnected() const override { return m_successfully_connected; }
 
-    void Disconnect() { m_disconnect = true; }
-    bool MarkedForDisconnect() const { return m_disconnect; };
+    void Disconnect() override { m_disconnect = true; }
+    bool MarkedForDisconnect() const override { return m_disconnect; };
     void TestOnlyReconnect() { m_disconnect = false; };
 
 	CSemaphoreGrant& GetGrantOutbound() { return grantOutbound; };
 
-    bool IsSendingPaused() const { return fPauseSend; }
+    bool IsSendingPaused() const override { return fPauseSend; }
     void TestOnlySetPauseSending(bool pause) { fPauseSend = pause; };
 
     const ConnectionType m_conn_type;
@@ -432,7 +484,7 @@ public:
      * Returns std::nullopt if the processing queue is empty, or a pair
      * consisting of the message and a bool that indicates if the processing
      * queue has more entries. */
-    std::optional<std::pair<CNetMessage, bool>> PollMessage()
+    std::optional<std::pair<CNetMessage, bool>> PollMessage() override
         EXCLUSIVE_LOCKS_REQUIRED(!m_msg_process_queue_mutex);
 
     size_t SocketSendData(unsigned int max_buf_size)
@@ -441,7 +493,7 @@ public:
         return WITH_LOCK(m_send_queue_mutex, return SocketSendDataInternal(max_buf_size));
     }
 
-    size_t PushMessage(CSerializedNetMsg&& msg, unsigned int max_buf_size)
+    size_t PushMessage(CSerializedNetMsg&& msg, unsigned int max_buf_size) override
         EXCLUSIVE_LOCKS_REQUIRED(!m_send_queue_mutex, !m_sock_mutex);
 
     bool IsSendQueueEmpty() const EXCLUSIVE_LOCKS_REQUIRED(!m_send_queue_mutex)
@@ -461,7 +513,7 @@ public:
         mapSendBytesPerMsgType[msg_type] += sent_bytes;
     }
 
-    bool IsOutboundOrBlockRelayConn() const {
+    bool IsOutboundOrBlockRelayConn() const override {
         switch (m_ctx.conn_type) {
             case ConnectionType::OUTBOUND_FULL_RELAY:
             case ConnectionType::BLOCK_RELAY:
@@ -476,31 +528,31 @@ public:
         assert(false);
     }
 
-    bool IsFullOutboundConn() const {
+    bool IsFullOutboundConn() const override {
         return m_ctx.conn_type == ConnectionType::OUTBOUND_FULL_RELAY;
     }
 
-    bool IsManualConn() const {
+    bool IsManualConn() const override {
         return m_ctx.conn_type == ConnectionType::MANUAL;
     }
 
-    bool IsBlockOnlyConn() const {
+    bool IsBlockOnlyConn() const override {
         return m_ctx.conn_type == ConnectionType::BLOCK_RELAY;
     }
 
-    bool IsFeelerConn() const {
+    bool IsFeelerConn() const override {
         return m_ctx.conn_type == ConnectionType::FEELER;
     }
 
-    bool IsAddrFetchConn() const {
+    bool IsAddrFetchConn() const override {
         return m_ctx.conn_type == ConnectionType::ADDR_FETCH;
     }
 
-    bool IsInboundConn() const {
+    bool IsInboundConn() const override {
         return m_ctx.conn_type == ConnectionType::INBOUND;
     }
 
-    bool ExpectServicesFromConn() const {
+    bool ExpectServicesFromConn() const override {
         switch (m_ctx.conn_type) {
             case ConnectionType::INBOUND:
             case ConnectionType::MANUAL:
@@ -525,15 +577,16 @@ public:
      *
      * @return network the peer connected through.
      */
-    Network ConnectedThroughNetwork() const;
+    Network ConnectedThroughNetwork() const override;
 
     CNode(ConnectionContext&& conn_ctx,
           std::shared_ptr<Sock> sock,
           CNodeOptions&& node_opts = {});
     CNode(const CNode&) = delete;
     CNode& operator=(const CNode&) = delete;
+    virtual ~CNode() {}
 
-    NodeId GetId() const {
+    NodeId GetId() const override {
         return m_ctx.id;
     }
 
@@ -554,9 +607,11 @@ public:
      */
     bool ReceiveMsgBytes(Span<const uint8_t> msg_bytes, bool& complete) EXCLUSIVE_LOCKS_REQUIRED(!cs_vRecv);
 
-    CService GetAddrLocal() const EXCLUSIVE_LOCKS_REQUIRED(!m_addr_local_mutex);
+    CService GetAddrLocal() const override
+        EXCLUSIVE_LOCKS_REQUIRED(!m_addr_local_mutex);
     //! May not be called more than once
-    void SetAddrLocal(const CService& addrLocalIn) EXCLUSIVE_LOCKS_REQUIRED(!m_addr_local_mutex);
+    void SetAddrLocal(const CService& addrLocalIn) override
+        EXCLUSIVE_LOCKS_REQUIRED(!m_addr_local_mutex);
 
     CNode* AddRef()
     {
@@ -573,10 +628,10 @@ public:
 
     void CopyStats(CNodeStats& stats) EXCLUSIVE_LOCKS_REQUIRED(!m_addr_local_mutex, !m_send_queue_mutex, !cs_vRecv);
 
-    std::string ConnectionTypeAsString() const { return ::ConnectionTypeAsString(m_ctx.conn_type); }
+    std::string ConnectionTypeAsString() const override { return ::ConnectionTypeAsString(m_ctx.conn_type); }
 
     /** A ping-pong round trip has completed successfully. Update latest ping time. */
-    void PongReceived(std::chrono::microseconds ping_time) {
+    void PongReceived(std::chrono::microseconds ping_time) override {
         m_last_ping_time = ping_time;
     }
 
