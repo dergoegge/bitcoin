@@ -529,7 +529,7 @@ public:
         EXCLUSIVE_LOCKS_REQUIRED(!m_most_recent_block_mutex);
 
     /** Implement NetEventsInterface */
-    void InitializeNode(CNode& node, ServiceFlags our_services) override
+    void InitializeNode(Connection& connection, ServiceFlags our_services) override
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_version_nonces_mutex);
     void FinalizeNode(const CNode& node) override
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_headers_presync_mutex, !m_version_nonces_mutex);
@@ -707,7 +707,7 @@ private:
         EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
     /** Send a version message to a peer */
-    void PushNodeVersion(CNode& pnode, const Peer& peer)
+    void PushNodeVersion(Connection& connection, const Peer& peer)
         EXCLUSIVE_LOCKS_REQUIRED(!m_version_nonces_mutex);
 
     /** Send a ping message every PING_INTERVAL or if requested via RPC. May
@@ -754,7 +754,7 @@ private:
     /** Whether this node is running in -blocksonly mode */
     const bool m_ignore_incoming_txs;
 
-    bool RejectIncomingTxs(const CNode& peer) const;
+    bool RejectIncomingTxs(const Connection& conn) const;
 
     /** Whether we've completed initial sync yet, for determining when to turn
       * on extra block-relay-only peers. */
@@ -1419,26 +1419,26 @@ void PeerManagerImpl::FindNextBlocksToDownload(const Peer& peer, unsigned int co
 
 } // namespace
 
-void PeerManagerImpl::PushNodeVersion(CNode& pnode, const Peer& peer)
+void PeerManagerImpl::PushNodeVersion(Connection& connection, const Peer& peer)
 {
     uint64_t my_services{peer.m_our_services};
     const int64_t nTime{count_seconds(GetTime<std::chrono::seconds>())};
-    uint64_t nonce{m_connman.GetDeterministicRandomizer(RANDOMIZER_ID_LOCALHOSTNONCE).Write(pnode.GetId()).Finalize()};
+    uint64_t nonce{m_connman.GetDeterministicRandomizer(RANDOMIZER_ID_LOCALHOSTNONCE).Write(connection.GetId()).Finalize()};
     // If this is an outbound connection, store the version nonce so we can check that
     // we haven't connected to ourselves.
-    if (!pnode.IsInboundConn()) {
+    if (!connection.IsInboundConn()) {
         LOCK(m_version_nonces_mutex);
-        m_version_nonces.emplace_hint(m_version_nonces.end(), pnode.GetId(), nonce);
+        m_version_nonces.emplace_hint(m_version_nonces.end(), connection.GetId(), nonce);
     }
     const int nNodeStartingHeight{m_best_height};
-    NodeId nodeid = pnode.GetId();
-    CAddress addr = pnode.GetAddr();
+    NodeId nodeid = connection.GetId();
+    CAddress addr = connection.GetAddr();
 
     CService addr_you = addr.IsRoutable() && !IsProxy(addr) && addr.IsAddrV1Compatible() ? addr : CService();
     uint64_t your_services{addr.nServices};
 
-    const bool tx_relay{!RejectIncomingTxs(pnode)};
-    m_connman.PushMessage(&pnode, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::VERSION, PROTOCOL_VERSION, my_services, nTime,
+    const bool tx_relay{!RejectIncomingTxs(connection)};
+    m_connman.PushMessage(&connection, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::VERSION, PROTOCOL_VERSION, my_services, nTime,
             your_services, addr_you, // Together the pre-version-31402 serialization of CAddress "addrYou" (without nTime)
             my_services, CService(), // Together the pre-version-31402 serialization of CAddress "addrMe" (without nTime)
             nonce, strSubVersion, nNodeStartingHeight, tx_relay));
@@ -1484,12 +1484,12 @@ void PeerManagerImpl::UpdateLastBlockAnnounceTime(NodeId node, int64_t time_in_s
     if (state) state->m_last_block_announcement = time_in_seconds;
 }
 
-void PeerManagerImpl::InitializeNode(CNode& node, ServiceFlags our_services)
+void PeerManagerImpl::InitializeNode(Connection& connection, ServiceFlags our_services)
 {
-    NodeId nodeid = node.GetId();
+    NodeId nodeid = connection.GetId();
     {
         LOCK(cs_main);
-        m_node_states.emplace_hint(m_node_states.end(), std::piecewise_construct, std::forward_as_tuple(nodeid), std::forward_as_tuple(node.IsInboundConn()));
+        m_node_states.emplace_hint(m_node_states.end(), std::piecewise_construct, std::forward_as_tuple(nodeid), std::forward_as_tuple(connection.IsInboundConn()));
         assert(m_txrequest.Count(nodeid) == 0);
     }
     PeerRef peer = std::make_shared<Peer>(nodeid, our_services);
@@ -1497,8 +1497,8 @@ void PeerManagerImpl::InitializeNode(CNode& node, ServiceFlags our_services)
         LOCK(m_peer_mutex);
         m_peer_map.emplace_hint(m_peer_map.end(), nodeid, peer);
     }
-    if (!node.IsInboundConn()) {
-        PushNodeVersion(node, *peer);
+    if (!connection.IsInboundConn()) {
+        PushNodeVersion(connection, *peer);
     }
 }
 
@@ -5387,13 +5387,13 @@ public:
 };
 } // namespace
 
-bool PeerManagerImpl::RejectIncomingTxs(const CNode& peer) const
+bool PeerManagerImpl::RejectIncomingTxs(const Connection& conn) const
 {
     // block-relay-only peers may never send txs to us
-    if (peer.IsBlockOnlyConn()) return true;
-    if (peer.IsFeelerConn()) return true;
+    if (conn.IsBlockOnlyConn()) return true;
+    if (conn.IsFeelerConn()) return true;
     // In -blocksonly mode, peers need the 'relay' permission to send txs to us
-    if (m_ignore_incoming_txs && !peer.HasPermission(NetPermissionFlags::Relay)) return true;
+    if (m_ignore_incoming_txs && !conn.HasPermission(NetPermissionFlags::Relay)) return true;
     return false;
 }
 

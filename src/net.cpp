@@ -2853,13 +2853,13 @@ bool CConnman::NodeFullyConnected(const CNode* pnode)
     return pnode && pnode->IsSuccessfullyConnected() && !pnode->MarkedForDisconnect();
 }
 
-void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
+void CConnman::PushMessage(Connection* conn, CSerializedNetMsg&& msg)
 {
-    assert(pnode);
+    assert(conn);
 
-    LogPrint(BCLog::NET, "sending %s (%d bytes) peer=%d\n", msg.m_type, msg.data.size(), pnode->GetId());
+    LogPrint(BCLog::NET, "sending %s (%d bytes) peer=%d\n", msg.m_type, msg.data.size(), conn->GetId());
     if (gArgs.GetBoolArg("-capturemessages", false)) {
-        CaptureMessage(pnode->GetAddr(), msg.m_type, msg.data, /*is_incoming=*/false);
+        CaptureMessage(conn->GetAddr(), msg.m_type, msg.data, /*is_incoming=*/false);
     }
 
     TRACE6(net, outbound_message,
@@ -2870,7 +2870,7 @@ void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
            msg.data.size(),
            msg.data.data());
 
-    if (auto bytes_sent = pnode->PushMessage(std::move(msg), nSendBufferMaxSize)) {
+    if (auto bytes_sent = conn->PushMessage(std::move(msg), nSendBufferMaxSize)) {
         RecordBytesSent(bytes_sent);
     }
 }
