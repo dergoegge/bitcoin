@@ -377,10 +377,8 @@ public:
         return NetPermissions::HasFlag(m_ctx.permission_flags, permission);
     }
 
-    /** fSuccessfullyConnected is set to true on receiving VERACK from the peer. */
-    std::atomic_bool fSuccessfullyConnected{false};
-    void MarkAsSuccessfullyConnected() { fSuccessfullyConnected = true; }
-    bool IsSuccessfullyConnected() const { return fSuccessfullyConnected; }
+    void MarkAsSuccessfullyConnected() { m_successfully_connected = true; }
+    bool IsSuccessfullyConnected() const { return m_successfully_connected; }
 
     void Disconnect() { m_disconnect = true; }
     bool MarkedForDisconnect() const { return m_disconnect; };
@@ -583,6 +581,9 @@ public:
 
 private:
     const ConnectionContext m_ctx;
+
+    /** m_successfully_connected is set to true on receiving VERACK from the peer. */
+    std::atomic_bool m_successfully_connected{false};
 
     /** Setting m_disconnect to true will cause the node to be disconnected the
      * next time DisconnectNodes() runs. */
