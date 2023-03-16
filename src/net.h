@@ -359,8 +359,6 @@ struct CNodeOptions
 class CNode
 {
 public:
-    std::atomic<std::chrono::seconds> m_last_send{0s};
-    std::atomic<std::chrono::seconds> m_last_recv{0s};
     //! Unix epoch time at peer connection
     const std::chrono::seconds m_connected;
     std::atomic<int64_t> nTimeOffset{0};
@@ -393,6 +391,15 @@ public:
     std::atomic_bool fPauseSend{false};
 
     const ConnectionType m_conn_type;
+
+    std::chrono::seconds TimeOfLastSend() const
+    {
+        return m_last_send;
+    }
+    std::chrono::seconds TimeOfLastRecv() const
+    {
+        return m_last_recv;
+    }
 
     bool IsReceivingPaused() const
     {
@@ -638,6 +645,9 @@ private:
 
     /** Last measured round-trip time. Used only for RPC/GUI stats/debugging.*/
     std::atomic<std::chrono::microseconds> m_last_ping_time{0us};
+
+    std::atomic<std::chrono::seconds> m_last_send{0s};
+    std::atomic<std::chrono::seconds> m_last_recv{0s};
 
     std::atomic_bool fPauseRecv{false};
 

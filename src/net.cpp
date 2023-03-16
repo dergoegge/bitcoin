@@ -1126,8 +1126,8 @@ bool CConnman::InactivityCheck(const CNode& node) const
     // Tests that see disconnects after using mocktime can start nodes with a
     // large timeout. For example, -peertimeout=999999999.
     const auto now{GetTime<std::chrono::seconds>()};
-    const auto last_send{node.m_last_send.load()};
-    const auto last_recv{node.m_last_recv.load()};
+    const auto last_send{node.TimeOfLastSend()};
+    const auto last_recv{node.TimeOfLastRecv()};
 
     if (!ShouldRunInactivityChecks(node, now)) return false;
 
