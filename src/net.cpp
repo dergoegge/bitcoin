@@ -579,7 +579,7 @@ void CNode::CloseSocketDisconnect()
     fDisconnect = true;
     LOCK(m_sock_mutex);
     if (m_sock) {
-        LogPrint(BCLog::NET, "disconnecting peer=%d\n", id);
+        LogPrint(BCLog::NET, "disconnecting peer=%d\n", m_ctx.id);
         m_sock.reset();
     }
     m_i2p_sam_session.reset();
@@ -602,7 +602,7 @@ void CNode::SetAddrLocal(const CService& addrLocalIn) {
     AssertLockNotHeld(m_addr_local_mutex);
     LOCK(m_addr_local_mutex);
     if (addrLocal.IsValid()) {
-        error("Addr local already set for node: %i. Refusing to change from %s to %s", id, addrLocal.ToStringAddrPort(), addrLocalIn.ToStringAddrPort());
+        error("Addr local already set for node: %i. Refusing to change from %s to %s", m_ctx.id, addrLocal.ToStringAddrPort(), addrLocalIn.ToStringAddrPort());
     } else {
         addrLocal = addrLocalIn;
     }
@@ -610,7 +610,7 @@ void CNode::SetAddrLocal(const CService& addrLocalIn) {
 
 Network CNode::ConnectedThroughNetwork() const
 {
-    return m_inbound_onion ? NET_ONION : addr.GetNetClass();
+    return m_ctx.is_inbound_onion ? NET_ONION : m_ctx.addr.GetNetClass();
 }
 
 #undef X
@@ -618,13 +618,13 @@ Network CNode::ConnectedThroughNetwork() const
 void CNode::CopyStats(CNodeStats& stats)
 {
     stats.nodeid = this->GetId();
-    X(addr);
-    X(addrBind);
+    stats.addr = m_ctx.addr;
+    stats.addrBind = m_ctx.addr_bind;
     stats.m_network = ConnectedThroughNetwork();
     X(m_last_send);
     X(m_last_recv);
-    X(m_connected);
-    X(m_addr_name);
+    stats.m_connected = m_ctx.connected;
+    stats.m_addr_name = m_ctx.addr_name;
     stats.fInbound = IsInboundConn();
     {
         LOCK(m_send_queue_mutex);
@@ -636,7 +636,7 @@ void CNode::CopyStats(CNodeStats& stats)
         X(mapRecvBytesPerMsgType);
         X(nRecvBytes);
     }
-    X(m_permission_flags);
+	stats.m_permission_flags = m_ctx.permission_flags;
 
     X(m_last_ping_time);
 
@@ -644,7 +644,7 @@ void CNode::CopyStats(CNodeStats& stats)
     CService addrLocalUnlocked = GetAddrLocal();
     stats.addrLocal = addrLocalUnlocked.IsValid() ? addrLocalUnlocked.ToStringAddrPort() : "";
 
-    X(m_conn_type);
+	stats.m_conn_type = m_ctx.conn_type;
 }
 #undef X
 
@@ -2652,13 +2652,7 @@ CNode::CNode(ConnectionContext&& conn_ctx,
              std::shared_ptr<Sock> sock,
              CNodeOptions&& node_opts)
     : m_conn_type{conn_ctx.conn_type},
-      id{conn_ctx.id},
-      m_connected{conn_ctx.connected},
-      addr{conn_ctx.addr},
-      addrBind{conn_ctx.addr_bind},
-      m_addr_name{conn_ctx.addr_name.empty() ? addr.ToStringAddrPort() : conn_ctx.addr_name},
-      m_inbound_onion{conn_ctx.is_inbound_onion},
-      m_permission_flags{conn_ctx.permission_flags},
+      m_ctx{conn_ctx},
       m_recv_flood_size{node_opts.recv_flood_size},
       m_sock{sock},
       m_i2p_sam_session{std::move(node_opts.i2p_sam_session)},
@@ -2672,9 +2666,9 @@ CNode::CNode(ConnectionContext&& conn_ctx,
     mapRecvBytesPerMsgType[NET_MESSAGE_TYPE_OTHER] = 0;
 
     if (fLogIPs) {
-        LogPrint(BCLog::NET, "Added connection to %s peer=%d\n", m_addr_name, id);
+        LogPrint(BCLog::NET, "Added connection to %s peer=%d\n", m_ctx.addr_name, m_ctx.id);
     } else {
-        LogPrint(BCLog::NET, "Added connection peer=%d\n", id);
+        LogPrint(BCLog::NET, "Added connection peer=%d\n", m_ctx.id);
     }
 }
 

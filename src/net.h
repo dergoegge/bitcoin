@@ -367,14 +367,14 @@ struct ConnectionContext {
 class CNode
 {
 public:
-    std::chrono::seconds GetConnected() const { return m_connected; }
-	const CAddress& GetAddr() const { return addr; }
-	const CAddress& GetAddrBind() const { return addrBind; }
-    const std::string& GetAddrName() const { return m_addr_name; }
-    bool IsInboundOnionConn() const { return m_inbound_onion; }
+    std::chrono::seconds GetConnected() const { return m_ctx.connected; }
+	const CAddress& GetAddr() const { return m_ctx.addr; }
+	const CAddress& GetAddrBind() const { return m_ctx.addr_bind; }
+    const std::string& GetAddrName() const { return m_ctx.addr_name; }
+    bool IsInboundOnionConn() const { return m_ctx.is_inbound_onion; }
 
     bool HasPermission(NetPermissionFlags permission) const {
-        return NetPermissions::HasFlag(m_permission_flags, permission);
+        return NetPermissions::HasFlag(m_ctx.permission_flags, permission);
     }
     /** fSuccessfullyConnected is set to true on receiving VERACK from the peer. */
     std::atomic_bool fSuccessfullyConnected{false};
@@ -458,7 +458,7 @@ public:
     }
 
     bool IsOutboundOrBlockRelayConn() const {
-        switch (m_conn_type) {
+        switch (m_ctx.conn_type) {
             case ConnectionType::OUTBOUND_FULL_RELAY:
             case ConnectionType::BLOCK_RELAY:
                 return true;
@@ -473,31 +473,31 @@ public:
     }
 
     bool IsFullOutboundConn() const {
-        return m_conn_type == ConnectionType::OUTBOUND_FULL_RELAY;
+        return m_ctx.conn_type == ConnectionType::OUTBOUND_FULL_RELAY;
     }
 
     bool IsManualConn() const {
-        return m_conn_type == ConnectionType::MANUAL;
+        return m_ctx.conn_type == ConnectionType::MANUAL;
     }
 
     bool IsBlockOnlyConn() const {
-        return m_conn_type == ConnectionType::BLOCK_RELAY;
+        return m_ctx.conn_type == ConnectionType::BLOCK_RELAY;
     }
 
     bool IsFeelerConn() const {
-        return m_conn_type == ConnectionType::FEELER;
+        return m_ctx.conn_type == ConnectionType::FEELER;
     }
 
     bool IsAddrFetchConn() const {
-        return m_conn_type == ConnectionType::ADDR_FETCH;
+        return m_ctx.conn_type == ConnectionType::ADDR_FETCH;
     }
 
     bool IsInboundConn() const {
-        return m_conn_type == ConnectionType::INBOUND;
+        return m_ctx.conn_type == ConnectionType::INBOUND;
     }
 
     bool ExpectServicesFromConn() const {
-        switch (m_conn_type) {
+        switch (m_ctx.conn_type) {
             case ConnectionType::INBOUND:
             case ConnectionType::MANUAL:
             case ConnectionType::FEELER:
@@ -530,7 +530,7 @@ public:
     CNode& operator=(const CNode&) = delete;
 
     NodeId GetId() const {
-        return id;
+        return m_ctx.id;
     }
 
     int GetRefCount() const
@@ -569,7 +569,7 @@ public:
 
     void CopyStats(CNodeStats& stats) EXCLUSIVE_LOCKS_REQUIRED(!m_addr_local_mutex, !m_send_queue_mutex, !cs_vRecv);
 
-    std::string ConnectionTypeAsString() const { return ::ConnectionTypeAsString(m_conn_type); }
+    std::string ConnectionTypeAsString() const { return ::ConnectionTypeAsString(m_ctx.conn_type); }
 
     /** A ping-pong round trip has completed successfully. Update latest ping time. */
     void PongReceived(std::chrono::microseconds ping_time) {
@@ -577,15 +577,7 @@ public:
     }
 
 private:
-    const NodeId id;
-    const std::chrono::seconds m_connected;
-    const CAddress addr;
-    const CAddress addrBind;
-    const std::string m_addr_name;
-    //! Whether this peer is an inbound onion, i.e. connected via our Tor onion service.
-    const bool m_inbound_onion;
-
-    const NetPermissionFlags m_permission_flags;
+    const ConnectionContext m_ctx;
 
     /** Last measured round-trip time. Used only for RPC/GUI stats/debugging.*/
     std::atomic<std::chrono::microseconds> m_last_ping_time{0us};
