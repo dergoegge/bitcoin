@@ -386,7 +386,8 @@ public:
 
     CSemaphoreGrant grantOutbound;
 
-    std::atomic_bool fPauseSend{false};
+    bool IsSendingPaused() const { return fPauseSend; }
+    void TestOnlySetPauseSending(bool pause) { fPauseSend = pause; };
 
     const ConnectionType m_conn_type;
 
@@ -596,6 +597,7 @@ private:
     std::atomic<std::chrono::seconds> m_last_recv{0s};
 
     std::atomic_bool fPauseRecv{false};
+    std::atomic_bool fPauseSend{false};
 
     const size_t m_recv_flood_size;
     std::list<CNetMessage> vRecvMsg; // Used only by SocketHandler thread

@@ -42,7 +42,7 @@ void ConnmanTestMsg::Handshake(CNode& node,
     };
 
     (void)connman.ReceiveMsgFrom(node, msg_version);
-    node.fPauseSend = false;
+    node.TestOnlySetPauseSending(false);
     connman.ProcessMessagesOnce(node);
     peerman.SendMessages(&node);
     if (node.MarkedForDisconnect()) return;
@@ -54,7 +54,7 @@ void ConnmanTestMsg::Handshake(CNode& node,
     if (successfully_connected) {
         CSerializedNetMsg msg_verack{mm.Make(NetMsgType::VERACK)};
         (void)connman.ReceiveMsgFrom(node, msg_verack);
-        node.fPauseSend = false;
+        node.TestOnlySetPauseSending(false);
         connman.ProcessMessagesOnce(node);
         peerman.SendMessages(&node);
         assert(node.IsSuccessfullyConnected());
