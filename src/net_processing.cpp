@@ -1432,7 +1432,7 @@ void PeerManagerImpl::PushNodeVersion(CNode& pnode, const Peer& peer)
     }
     const int nNodeStartingHeight{m_best_height};
     NodeId nodeid = pnode.GetId();
-    CAddress addr = pnode.addr;
+    CAddress addr = pnode.GetAddr();
 
     CService addr_you = addr.IsRoutable() && !IsProxy(addr) && addr.IsAddrV1Compatible() ? addr : CService();
     uint64_t your_services{addr.nServices};
@@ -1584,7 +1584,7 @@ void PeerManagerImpl::FinalizeNode(const CNode& node)
         // Only change visible addrman state for full outbound peers.  We don't
         // call Connected() for feeler connections since they don't have
         // fSuccessfullyConnected set.
-        m_addrman.Connected(node.addr);
+        m_addrman.Connected(node.GetAddr());
     }
     {
         LOCK(m_headers_presync_mutex);
@@ -3258,7 +3258,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         vRecv >> addrMe;
         if (!pfrom.IsInboundConn())
         {
-            m_addrman.SetServices(pfrom.addr, nServices);
+            m_addrman.SetServices(pfrom.GetAddr(), nServices);
         }
         if (pfrom.ExpectServicesFromConn() && !HasAllDesirableServiceFlags(nServices))
         {
@@ -3295,7 +3295,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // Disconnect if we connected to ourself
         if (pfrom.IsInboundConn() && !CheckIncomingNonce(nNonce))
         {
-            LogPrintf("connected to self at %s, disconnecting\n", pfrom.addr.ToStringAddrPort());
+            LogPrintf("connected to self at %s, disconnecting\n", pfrom.GetAddr().ToStringAddrPort());
             pfrom.fDisconnect = true;
             return;
         }
@@ -3416,12 +3416,12 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             //
             // This moves an address from New to Tried table in Addrman,
             // resolves tried-table collisions, etc.
-            m_addrman.Good(pfrom.addr);
+            m_addrman.Good(pfrom.GetAddr());
         }
 
         std::string remoteAddr;
         if (fLogIPs)
-            remoteAddr = ", peeraddr=" + pfrom.addr.ToStringAddrPort();
+            remoteAddr = ", peeraddr=" + pfrom.GetAddr().ToStringAddrPort();
 
         LogPrint(BCLog::NET, "receive version message: %s: version %d, blocks=%d, us=%s, txrelay=%d, peer=%d%s\n",
                   cleanSubVer, peer->m_version,
@@ -3433,7 +3433,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         if (!pfrom.IsInboundConn()) {
             // Don't use timedata samples from inbound peers to make it
             // harder for others to tamper with our adjusted time.
-            AddTimeData(pfrom.addr, nTimeOffset);
+            AddTimeData(pfrom.GetAddr(), nTimeOffset);
         }
 
         // If the peer is old enough to have the old alert system, send it the final alert.
@@ -3468,7 +3468,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         if (!pfrom.IsInboundConn()) {
             LogPrintf("New outbound peer connected: version: %d, blocks=%d, peer=%d%s (%s)\n",
                       peer->m_version.load(), peer->m_starting_height,
-                      pfrom.GetId(), (fLogIPs ? strprintf(", peeraddr=%s", pfrom.addr.ToStringAddrPort()) : ""),
+                      pfrom.GetId(), (fLogIPs ? strprintf(", peeraddr=%s", pfrom.GetAddr().ToStringAddrPort()) : ""),
                       pfrom.ConnectionTypeAsString());
         }
 
@@ -3716,7 +3716,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         LogPrint(BCLog::NET, "Received addr: %u addresses (%u processed, %u rate-limited) from peer=%d\n",
                  vAddr.size(), num_proc, num_rate_limit, pfrom.GetId());
 
-        m_addrman.Add(vAddrOk, pfrom.addr, 2h);
+        m_addrman.Add(vAddrOk, pfrom.GetAddr(), 2h);
         if (vAddr.size() < 1000) peer->m_getaddr_sent = false;
 
         // AddrFetch: Require multiple addresses to avoid disconnecting on self-announcements
@@ -4909,19 +4909,19 @@ bool PeerManagerImpl::MaybeDiscourageAndDisconnect(CNode& pnode, Peer& peer)
         return false;
     }
 
-    if (pnode.addr.IsLocal()) {
+    if (pnode.GetAddr().IsLocal()) {
         // We disconnect local peers for bad behavior but don't discourage (since that would discourage
         // all peers on the same local address)
         LogPrint(BCLog::NET, "Warning: disconnecting but not discouraging %s peer %d!\n",
-                 pnode.m_inbound_onion ? "inbound onion" : "local", peer.m_id);
+                 pnode.IsInboundOnionConn() ? "inbound onion" : "local", peer.m_id);
         pnode.fDisconnect = true;
         return true;
     }
 
     // Normal case: Disconnect the peer and discourage all nodes sharing the address
     LogPrint(BCLog::NET, "Disconnecting and discouraging peer %d!\n", peer.m_id);
-    if (m_banman) m_banman->Discourage(pnode.addr);
-    m_connman.DisconnectNode(pnode.addr);
+    if (m_banman) m_banman->Discourage(pnode.GetAddr());
+    m_connman.DisconnectNode(pnode.GetAddr());
     return true;
 }
 
@@ -4975,7 +4975,7 @@ bool PeerManagerImpl::ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt
     );
 
     if (gArgs.GetBoolArg("-capturemessages", false)) {
-        CaptureMessage(pfrom->addr, msg.m_type, MakeUCharSpan(msg.m_recv), /*is_incoming=*/true);
+        CaptureMessage(pfrom->GetAddr(), msg.m_type, MakeUCharSpan(msg.m_recv), /*is_incoming=*/true);
     }
 
     msg.SetVersion(peer->m_greatest_common_version);
@@ -5094,14 +5094,14 @@ void PeerManagerImpl::EvictExtraOutboundPeers(std::chrono::seconds now)
             // valid headers chain with at least as much work as our tip.
             CNodeState *node_state = State(pnode->GetId());
             if (node_state == nullptr ||
-                (now - pnode->m_connected >= MINIMUM_CONNECT_TIME && node_state->nBlocksInFlight == 0)) {
+                (now - pnode->GetConnected() >= MINIMUM_CONNECT_TIME && node_state->nBlocksInFlight == 0)) {
                 pnode->fDisconnect = true;
                 LogPrint(BCLog::NET, "disconnecting extra block-relay-only peer=%d (last block received at time %d)\n",
                          pnode->GetId(), count_seconds(*Assert(m_evictionman.GetLastBlockTime(pnode->GetId()))));
                 return true;
             } else {
                 LogPrint(BCLog::NET, "keeping block-relay-only peer=%d chosen for eviction (connect time: %d, blocks_in_flight: %d)\n",
-                         pnode->GetId(), count_seconds(pnode->m_connected), node_state->nBlocksInFlight);
+                         pnode->GetId(), count_seconds(pnode->GetConnected()), node_state->nBlocksInFlight);
             }
             return false;
         });
@@ -5141,13 +5141,13 @@ void PeerManagerImpl::EvictExtraOutboundPeers(std::chrono::seconds now)
                 // Also don't disconnect any peer we're trying to download a
                 // block from.
                 CNodeState &state = *State(pnode->GetId());
-                if (now - pnode->m_connected > MINIMUM_CONNECT_TIME && state.nBlocksInFlight == 0) {
+                if (now - pnode->GetConnected() > MINIMUM_CONNECT_TIME && state.nBlocksInFlight == 0) {
                     LogPrint(BCLog::NET, "disconnecting extra outbound peer=%d (last block announcement received at time %d)\n", pnode->GetId(), oldest_block_announcement);
                     pnode->fDisconnect = true;
                     return true;
                 } else {
                     LogPrint(BCLog::NET, "keeping outbound peer=%d chosen for eviction (connect time: %d, blocks_in_flight: %d)\n",
-                             pnode->GetId(), count_seconds(pnode->m_connected), state.nBlocksInFlight);
+                             pnode->GetId(), count_seconds(pnode->GetConnected()), state.nBlocksInFlight);
                     return false;
                 }
             });
@@ -5435,7 +5435,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
 
     const auto current_time{GetTime<std::chrono::microseconds>()};
 
-    if (pto->IsAddrFetchConn() && current_time - pto->m_connected > 10 * AVG_ADDRESS_BROADCAST_INTERVAL) {
+    if (pto->IsAddrFetchConn() && current_time - pto->GetConnected() > 10 * AVG_ADDRESS_BROADCAST_INTERVAL) {
         LogPrint(BCLog::NET, "addrfetch connection timeout; disconnecting peer=%d\n", pto->GetId());
         pto->fDisconnect = true;
         return true;

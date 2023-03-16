@@ -367,15 +367,12 @@ struct ConnectionContext {
 class CNode
 {
 public:
-    //! Unix epoch time at peer connection
-    const std::chrono::seconds m_connected;
-    // Address of this peer
-    const CAddress addr;
-    // Bind address of our side of the connection
-    const CAddress addrBind;
-    const std::string m_addr_name;
-    //! Whether this peer is an inbound onion, i.e. connected via our Tor onion service.
-    const bool m_inbound_onion;
+    std::chrono::seconds GetConnected() const { return m_connected; }
+	const CAddress& GetAddr() const { return addr; }
+	const CAddress& GetAddrBind() const { return addrBind; }
+    const std::string& GetAddrName() const { return m_addr_name; }
+    bool IsInboundOnionConn() const { return m_inbound_onion; }
+
     bool HasPermission(NetPermissionFlags permission) const {
         return NetPermissions::HasFlag(m_permission_flags, permission);
     }
@@ -581,6 +578,13 @@ public:
 
 private:
     const NodeId id;
+    const std::chrono::seconds m_connected;
+    const CAddress addr;
+    const CAddress addrBind;
+    const std::string m_addr_name;
+    //! Whether this peer is an inbound onion, i.e. connected via our Tor onion service.
+    const bool m_inbound_onion;
+
     const NetPermissionFlags m_permission_flags;
 
     /** Last measured round-trip time. Used only for RPC/GUI stats/debugging.*/

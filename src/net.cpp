@@ -226,13 +226,13 @@ static int GetnScore(const CService& addr)
 bool IsPeerAddrLocalGood(CNode *pnode)
 {
     CService addrLocal = pnode->GetAddrLocal();
-    return fDiscover && pnode->addr.IsRoutable() && addrLocal.IsRoutable() &&
+    return fDiscover && pnode->GetAddr().IsRoutable() && addrLocal.IsRoutable() &&
            IsReachable(addrLocal.GetNetwork());
 }
 
 std::optional<CService> GetLocalAddrForPeer(CNode& node)
 {
-    CService addrLocal{GetLocalAddress(node.addr)};
+    CService addrLocal{GetLocalAddress(node.GetAddr())};
     if (gArgs.GetBoolArg("-addrmantest", false)) {
         // use IPv4 loopback during addrmantest
         addrLocal = CService(LookupNumeric("127.0.0.1", GetListenPort()));
@@ -363,7 +363,7 @@ CNode* CConnman::FindNode(const CNetAddr& ip)
 {
     LOCK(m_nodes_mutex);
     for (CNode* pnode : m_nodes) {
-      if (static_cast<CNetAddr>(pnode->addr) == ip) {
+      if (static_cast<CNetAddr>(pnode->GetAddr()) == ip) {
             return pnode;
         }
     }
@@ -374,7 +374,7 @@ CNode* CConnman::FindNode(const CSubNet& subNet)
 {
     LOCK(m_nodes_mutex);
     for (CNode* pnode : m_nodes) {
-        if (subNet.Match(static_cast<CNetAddr>(pnode->addr))) {
+        if (subNet.Match(static_cast<CNetAddr>(pnode->GetAddr()))) {
             return pnode;
         }
     }
@@ -385,7 +385,7 @@ CNode* CConnman::FindNode(const std::string& addrName)
 {
     LOCK(m_nodes_mutex);
     for (CNode* pnode : m_nodes) {
-        if (pnode->m_addr_name == addrName) {
+        if (pnode->GetAddrName() == addrName) {
             return pnode;
         }
     }
@@ -396,7 +396,7 @@ CNode* CConnman::FindNode(const CService& addr)
 {
     LOCK(m_nodes_mutex);
     for (CNode* pnode : m_nodes) {
-        if (static_cast<CService>(pnode->addr) == addr) {
+        if (static_cast<CService>(pnode->GetAddr()) == addr) {
             return pnode;
         }
     }
@@ -962,10 +962,10 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
 
     m_evictionman.AddCandidate(
         /*id=*/pnode->GetId(),
-        /*connected=*/pnode->m_connected,
+        /*connected=*/pnode->GetConnected(),
         /*keyed_net_group=*/CalculateKeyedNetGroup(addr),
         /*prefer_evict=*/discouraged,
-        /*is_local=*/pnode->addr.IsLocal(),
+        /*is_local=*/pnode->GetAddr().IsLocal(),
         /*network=*/pnode->ConnectedThroughNetwork(),
         /*noban=*/pnode->HasPermission(NetPermissionFlags::NoBan),
         /*conn_type=*/ConnectionType::INBOUND);
@@ -1082,7 +1082,7 @@ void CConnman::NotifyNumConnectionsChanged()
 
 bool CConnman::ShouldRunInactivityChecks(const CNode& node, std::chrono::seconds now) const
 {
-    return node.m_connected + m_peer_connect_timeout < now;
+    return node.GetConnected() + m_peer_connect_timeout < now;
 }
 
 bool CConnman::InactivityCheck(const CNode& node) const
@@ -1594,7 +1594,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
                     case ConnectionType::MANUAL:
                     case ConnectionType::OUTBOUND_FULL_RELAY:
                     case ConnectionType::BLOCK_RELAY:
-                        setConnected.insert(m_netgroupman.GetGroup(pnode->addr));
+                        setConnected.insert(m_netgroupman.GetGroup(pnode->GetAddr()));
                 } // no default case, so the compiler can warn about missing cases
             }
         }
@@ -1764,7 +1764,7 @@ std::vector<CAddress> CConnman::GetCurrentBlockRelayOnlyConns() const
     LOCK(m_nodes_mutex);
     for (const CNode* pnode : m_nodes) {
         if (pnode->IsBlockOnlyConn()) {
-            ret.push_back(pnode->addr);
+            ret.push_back(pnode->GetAddr());
         }
     }
 
@@ -1789,12 +1789,12 @@ std::vector<AddedNodeInfo> CConnman::GetAddedNodeInfo() const
     {
         LOCK(m_nodes_mutex);
         for (const CNode* pnode : m_nodes) {
-            if (pnode->addr.IsValid()) {
-                mapConnected[pnode->addr] = pnode->IsInboundConn();
+            if (pnode->GetAddr().IsValid()) {
+                mapConnected[pnode->GetAddr()] = pnode->IsInboundConn();
             }
-            std::string addrName{pnode->m_addr_name};
+            std::string addrName{pnode->GetAddrName()};
             if (!addrName.empty()) {
-                mapConnectedByName[std::move(addrName)] = std::make_pair(pnode->IsInboundConn(), static_cast<const CService&>(pnode->addr));
+                mapConnectedByName[std::move(addrName)] = std::make_pair(pnode->IsInboundConn(), static_cast<const CService&>(pnode->GetAddr()));
             }
         }
     }
@@ -1892,10 +1892,10 @@ void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFai
 
     m_evictionman.AddCandidate(
         /*id=*/pnode->GetId(),
-        /*connected=*/pnode->m_connected,
+        /*connected=*/pnode->GetConnected(),
         /*keyed_net_group=*/CalculateKeyedNetGroup(addrConnect),
         /*prefer_evict=*/false,
-        /*is_local=*/pnode->addr.IsLocal(),
+        /*is_local=*/pnode->GetAddr().IsLocal(),
         /*network=*/pnode->ConnectedThroughNetwork(),
         /*noban=*/pnode->HasPermission(NetPermissionFlags::NoBan),
         /*conn_type=*/conn_type);
@@ -2394,13 +2394,13 @@ std::vector<CAddress> CConnman::GetAddresses(size_t max_addresses, size_t max_pc
 
 std::vector<CAddress> CConnman::GetAddresses(CNode& requestor, size_t max_addresses, size_t max_pct)
 {
-    auto local_socket_bytes = requestor.addrBind.GetAddrBytes();
+    auto local_socket_bytes = requestor.GetAddrBind().GetAddrBytes();
     uint64_t cache_id = GetDeterministicRandomizer(RANDOMIZER_ID_ADDRCACHE)
         .Write(requestor.ConnectedThroughNetwork())
         .Write(local_socket_bytes.data(), local_socket_bytes.size())
         // For outbound connections, the port of the bound address is randomly
         // assigned by the OS and would therefore not be useful for seeding.
-        .Write(requestor.IsInboundConn() ? requestor.addrBind.GetPort() : 0)
+        .Write(requestor.IsInboundConn() ? requestor.GetAddrBind().GetPort() : 0)
         .Finalize();
     const auto current_time = GetTime<std::chrono::microseconds>();
     auto r = m_addr_response_caches.emplace(cache_id, CachedAddrResponse{});
@@ -2496,7 +2496,7 @@ void CConnman::GetNodeStats(std::vector<CNodeStats>& vstats) const
             vstats.back().m_last_tx_time = *last_tx_time;
         }
 
-        vstats.back().m_mapped_as = m_netgroupman.GetMappedAS(pnode->addr);
+        vstats.back().m_mapped_as = m_netgroupman.GetMappedAS(pnode->GetAddr());
     }
 }
 
@@ -2516,7 +2516,7 @@ bool CConnman::DisconnectNode(const CSubNet& subnet)
     bool disconnected = false;
     LOCK(m_nodes_mutex);
     for (CNode* pnode : m_nodes) {
-        if (subnet.Match(pnode->addr)) {
+        if (subnet.Match(pnode->GetAddr())) {
             LogPrint(BCLog::NET, "disconnect by subnet%s matched peer=%d; disconnecting\n", (fLogIPs ? strprintf("=%s", subnet.ToString()) : ""), pnode->GetId());
             pnode->fDisconnect = true;
             disconnected = true;
@@ -2651,13 +2651,13 @@ ServiceFlags CConnman::GetLocalServices() const
 CNode::CNode(ConnectionContext&& conn_ctx,
              std::shared_ptr<Sock> sock,
              CNodeOptions&& node_opts)
-    : m_connected{conn_ctx.connected},
+    : m_conn_type{conn_ctx.conn_type},
+      id{conn_ctx.id},
+      m_connected{conn_ctx.connected},
       addr{conn_ctx.addr},
       addrBind{conn_ctx.addr_bind},
       m_addr_name{conn_ctx.addr_name.empty() ? addr.ToStringAddrPort() : conn_ctx.addr_name},
       m_inbound_onion{conn_ctx.is_inbound_onion},
-      m_conn_type{conn_ctx.conn_type},
-      id{conn_ctx.id},
       m_permission_flags{conn_ctx.permission_flags},
       m_recv_flood_size{node_opts.recv_flood_size},
       m_sock{sock},
@@ -2865,12 +2865,12 @@ void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
 
     LogPrint(BCLog::NET, "sending %s (%d bytes) peer=%d\n", msg.m_type, msg.data.size(), pnode->GetId());
     if (gArgs.GetBoolArg("-capturemessages", false)) {
-        CaptureMessage(pnode->addr, msg.m_type, msg.data, /*is_incoming=*/false);
+        CaptureMessage(pnode->GetAddr(), msg.m_type, msg.data, /*is_incoming=*/false);
     }
 
     TRACE6(net, outbound_message,
            GetId(),
-           m_addr_name.c_str(),
+           GetAddrName().c_str(),
            ConnectionTypeAsString().c_str(),
            msg.m_type.c_str(),
            msg.data.size(),

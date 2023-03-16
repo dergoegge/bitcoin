@@ -127,10 +127,10 @@ static void AddRandomOutboundPeer(NodeId& id, std::vector<CNode*>& vNodes, PeerM
 
     evictionman.AddCandidate(
         /*id=*/node.GetId(),
-        /*connected=*/node.m_connected,
+        /*connected=*/node.GetConnected(),
         /*keyed_net_group=*/0,
         /*prefer_evict=*/false,
-        /*is_local=*/node.addr.IsLocal(),
+        /*is_local=*/node.GetAddr().IsLocal(),
         /*network=*/node.ConnectedThroughNetwork(),
         /*noban=*/node.HasPermission(NetPermissionFlags::NoBan),
         /*conn_type=*/connType);
