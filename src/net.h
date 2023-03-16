@@ -378,12 +378,10 @@ public:
     }
     /** fSuccessfullyConnected is set to true on receiving VERACK from the peer. */
     std::atomic_bool fSuccessfullyConnected{false};
-    // Setting fDisconnect to true will cause the node to be disconnected the
-    // next time DisconnectNodes() runs
-    std::atomic_bool fDisconnect{false};
-    void Disconnect() { fDisconnect = true; }
-    bool MarkedForDisconnect() const { return fDisconnect; };
-    void TestOnlyReconnect() { fDisconnect = false; };
+
+    void Disconnect() { m_disconnect = true; }
+    bool MarkedForDisconnect() const { return m_disconnect; };
+    void TestOnlyReconnect() { m_disconnect = false; };
 
     CSemaphoreGrant grantOutbound;
 
@@ -582,6 +580,10 @@ public:
 
 private:
     const ConnectionContext m_ctx;
+
+    /** Setting m_disconnect to true will cause the node to be disconnected the
+     * next time DisconnectNodes() runs. */
+    std::atomic_bool m_disconnect{false};
 
     /** Last measured round-trip time. Used only for RPC/GUI stats/debugging.*/
     std::atomic<std::chrono::microseconds> m_last_ping_time{0us};
