@@ -547,9 +547,6 @@ public:
      * in CConnman::AttemptToEvictConnection. */
     std::atomic<std::chrono::seconds> m_last_tx_time{0s};
 
-    /** Last measured round-trip time. Used only for RPC/GUI stats/debugging.*/
-    std::atomic<std::chrono::microseconds> m_last_ping_time{0us};
-
     /** Lowest measured round-trip time. Used as an inbound peer eviction
      * criterium in CConnman::AttemptToEvictConnection. */
     std::atomic<std::chrono::microseconds> m_min_ping_time{std::chrono::microseconds::max()};
@@ -633,6 +630,9 @@ private:
     const NodeId id;
     const uint64_t nLocalHostNonce;
     std::atomic<int> m_greatest_common_version{INIT_PROTO_VERSION};
+
+    /** Last measured round-trip time. Used only for RPC/GUI stats/debugging.*/
+    std::atomic<std::chrono::microseconds> m_last_ping_time{0us};
 
     const size_t m_recv_flood_size;
     std::list<CNetMessage> vRecvMsg; // Used only by SocketHandler thread
