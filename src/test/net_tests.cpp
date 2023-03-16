@@ -612,7 +612,7 @@ BOOST_AUTO_TEST_CASE(ipv4_peer_with_ipv6_addrMe_test)
                                                                .conn_type = ConnectionType::OUTBOUND_FULL_RELAY,
                                                                .is_inbound_onion = false},
                                                            /*sock=*/nullptr);
-    pnode->fSuccessfullyConnected.store(true);
+    pnode->MarkAsSuccessfullyConnected();
 
     // the peer claims to be reaching us via IPv6
     in6_addr ipv6AddrLocal;
@@ -664,7 +664,7 @@ BOOST_AUTO_TEST_CASE(get_local_addr_for_peer_port)
                        .conn_type = ConnectionType::OUTBOUND_FULL_RELAY,
                        .is_inbound_onion = false},
                    /*sock=*/nullptr};
-    peer_out.fSuccessfullyConnected = true;
+    peer_out.MarkAsSuccessfullyConnected();
     peer_out.SetAddrLocal(peer_us);
 
     // Without the fix peer_us:8333 is chosen instead of the proper peer_us:bind_port.
@@ -683,7 +683,7 @@ BOOST_AUTO_TEST_CASE(get_local_addr_for_peer_port)
                       .conn_type = ConnectionType::OUTBOUND_FULL_RELAY,
                       .is_inbound_onion = false},
                   /*sock=*/nullptr};
-    peer_in.fSuccessfullyConnected = true;
+    peer_in.MarkAsSuccessfullyConnected();
     peer_in.SetAddrLocal(peer_us);
 
     // Without the fix peer_us:8333 is chosen instead of the proper peer_us:peer_us.GetPort().
@@ -836,7 +836,7 @@ BOOST_AUTO_TEST_CASE(initial_advertise_from_version_message)
     const auto msg_verack = msg_maker.Make(NetMsgType::VERACK);
     CDataStream msg_verack_stream{msg_verack.data, SER_NETWORK, PROTOCOL_VERSION};
 
-    // Will set peer.fSuccessfullyConnected to true (necessary in SendMessages()).
+    // Will mark connection as successfully connected (necessary in SendMessages()).
     m_node.peerman->ProcessMessage(
         peer, NetMsgType::VERACK, msg_verack_stream, time_received_dummy, interrupt_dummy);
 

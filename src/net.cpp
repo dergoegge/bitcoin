@@ -1110,7 +1110,7 @@ bool CConnman::InactivityCheck(const CNode& node) const
         return true;
     }
 
-    if (!node.fSuccessfullyConnected) {
+    if (!node.IsSuccessfullyConnected()) {
         LogPrint(BCLog::NET, "version handshake timeout peer=%d\n", node.GetId());
         return true;
     }
@@ -1321,7 +1321,7 @@ void CConnman::ThreadDNSAddressSeed()
                     {
                         LOCK(m_nodes_mutex);
                         for (const CNode* pnode : m_nodes) {
-                            if (pnode->fSuccessfullyConnected && pnode->IsFullOutboundConn()) ++nRelevant;
+                            if (pnode->IsSuccessfullyConnected() && pnode->IsFullOutboundConn()) ++nRelevant;
                         }
                     }
                     if (nRelevant >= 2) {
@@ -1439,7 +1439,7 @@ int CConnman::GetExtraFullOutboundCount() const
     {
         LOCK(m_nodes_mutex);
         for (const CNode* pnode : m_nodes) {
-            if (pnode->fSuccessfullyConnected && !pnode->MarkedForDisconnect() && pnode->IsFullOutboundConn()) {
+            if (pnode->IsSuccessfullyConnected() && !pnode->MarkedForDisconnect() && pnode->IsFullOutboundConn()) {
                 ++full_outbound_peers;
             }
         }
@@ -1453,7 +1453,7 @@ int CConnman::GetExtraBlockRelayCount() const
     {
         LOCK(m_nodes_mutex);
         for (const CNode* pnode : m_nodes) {
-            if (pnode->fSuccessfullyConnected && !pnode->MarkedForDisconnect() && pnode->IsBlockOnlyConn()) {
+            if (pnode->IsSuccessfullyConnected() && !pnode->MarkedForDisconnect() && pnode->IsBlockOnlyConn()) {
                 ++block_relay_peers;
             }
         }
@@ -2850,7 +2850,7 @@ size_t CNode::PushMessage(CSerializedNetMsg&& msg, unsigned int max_buf_size)
 
 bool CConnman::NodeFullyConnected(const CNode* pnode)
 {
-    return pnode && pnode->fSuccessfullyConnected && !pnode->MarkedForDisconnect();
+    return pnode && pnode->IsSuccessfullyConnected() && !pnode->MarkedForDisconnect();
 }
 
 void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)

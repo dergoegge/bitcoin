@@ -376,8 +376,11 @@ public:
     bool HasPermission(NetPermissionFlags permission) const {
         return NetPermissions::HasFlag(m_ctx.permission_flags, permission);
     }
+
     /** fSuccessfullyConnected is set to true on receiving VERACK from the peer. */
     std::atomic_bool fSuccessfullyConnected{false};
+    void MarkAsSuccessfullyConnected() { fSuccessfullyConnected = true; }
+    bool IsSuccessfullyConnected() const { return fSuccessfullyConnected; }
 
     void Disconnect() { m_disconnect = true; }
     bool MarkedForDisconnect() const { return m_disconnect; };
