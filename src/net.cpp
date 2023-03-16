@@ -1080,9 +1080,9 @@ void CConnman::NotifyNumConnectionsChanged()
     }
 }
 
-bool CConnman::ShouldRunInactivityChecks(const CNode& node, std::chrono::seconds now) const
+bool CConnman::ShouldRunInactivityChecks(const Connection& conn, std::chrono::seconds now) const
 {
-    return node.GetConnected() + m_peer_connect_timeout < now;
+    return conn.GetConnected() + m_peer_connect_timeout < now;
 }
 
 bool CConnman::InactivityCheck(const CNode& node) const
@@ -2392,7 +2392,7 @@ std::vector<CAddress> CConnman::GetAddresses(size_t max_addresses, size_t max_pc
     return addresses;
 }
 
-std::vector<CAddress> CConnman::GetAddresses(CNode& requestor, size_t max_addresses, size_t max_pct)
+std::vector<CAddress> CConnman::GetAddresses(Connection& requestor, size_t max_addresses, size_t max_pct)
 {
     auto local_socket_bytes = requestor.GetAddrBind().GetAddrBytes();
     uint64_t cache_id = GetDeterministicRandomizer(RANDOMIZER_ID_ADDRCACHE)
@@ -2875,7 +2875,7 @@ void CConnman::PushMessage(Connection* conn, CSerializedNetMsg&& msg)
     }
 }
 
-bool CConnman::ForNode(NodeId id, std::function<bool(CNode* pnode)> func)
+bool CConnman::ForNode(NodeId id, std::function<bool(Connection* pnode)> func)
 {
     CNode* found = nullptr;
     LOCK(m_nodes_mutex);

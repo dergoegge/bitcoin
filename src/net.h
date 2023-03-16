@@ -735,7 +735,7 @@ public:
     * @param[in]   interrupt       Interrupt condition for processing threads
     * @return                      True if there is more work to be done
     */
-    virtual bool ProcessMessages(CNode* pnode, std::atomic<bool>& interrupt) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex) = 0;
+    virtual bool ProcessMessages(Connection* pnode, std::atomic<bool>& interrupt) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex) = 0;
 
     /**
     * Send queued protocol messages to a given node.
@@ -743,7 +743,7 @@ public:
     * @param[in]   pnode           The node which we are sending messages to.
     * @return                      True if there is more work to be done
     */
-    virtual bool SendMessages(CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex) = 0;
+    virtual bool SendMessages(Connection* pnode) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex) = 0;
 
 
 protected:
@@ -838,11 +838,11 @@ public:
     void SetNetworkActive(bool active);
     void OpenNetworkConnection(const CAddress& addrConnect, bool fCountFailure, CSemaphoreGrant* grantOutbound, const char* strDest, ConnectionType conn_type) EXCLUSIVE_LOCKS_REQUIRED(!m_unused_i2p_sessions_mutex);
 
-    bool ForNode(NodeId id, std::function<bool(CNode* pnode)> func);
+    bool ForNode(NodeId id, std::function<bool(Connection* pnode)> func);
 
     void PushMessage(Connection* conn, CSerializedNetMsg&& msg) EXCLUSIVE_LOCKS_REQUIRED(!m_total_bytes_sent_mutex);
 
-    using NodeFn = std::function<void(CNode*)>;
+    using NodeFn = std::function<void(Connection*)>;
     void ForEachNode(const NodeFn& func)
     {
         LOCK(m_nodes_mutex);
@@ -876,7 +876,7 @@ public:
      * A non-malicious call (from RPC or a peer with addr permission) should
      * call the function without a parameter to avoid using the cache.
      */
-    std::vector<CAddress> GetAddresses(CNode& requestor, size_t max_addresses, size_t max_pct);
+    std::vector<CAddress> GetAddresses(Connection& requestor, size_t max_addresses, size_t max_pct);
 
     // This allows temporarily exceeding m_max_outbound_full_relay, with the goal of finding
     // a peer that is better than all our current peers.
@@ -951,7 +951,7 @@ public:
     void WakeMessageHandler() EXCLUSIVE_LOCKS_REQUIRED(!mutexMsgProc);
 
     /** Return true if we should disconnect the peer for failing an inactivity check. */
-    bool ShouldRunInactivityChecks(const CNode& node, std::chrono::seconds now) const;
+    bool ShouldRunInactivityChecks(const Connection& node, std::chrono::seconds now) const;
 
 private:
     struct ListenSocket {

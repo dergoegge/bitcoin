@@ -208,10 +208,10 @@ struct QueuedBlock {
  * Mutexes inside this struct must not be held when locking m_peer_mutex.
  *
  * TODO: move most members from CNodeState to this structure.
- * TODO: move remaining application-layer data members from CNode to this structure.
+ * TODO: move remaining application-layer data members from Connection to this structure.
  */
 struct Peer {
-    /** Same id as the CNode object for this peer */
+    /** Same id as the Connection object for this peer */
     const NodeId m_id{0};
 
     /** Services we offered to this peer.
@@ -426,7 +426,7 @@ using PeerRef = std::shared_ptr<Peer>;
 
 /**
  * Maintain validation-specific state about nodes, protected by cs_main, instead
- * by CNode's own locks. This simplifies asynchronous operation, where
+ * by Connection's own locks. This simplifies asynchronous operation, where
  * processing of incoming data is done after the ProcessMessage call returns,
  * and we're no longer holding the node's locks.
  */
@@ -533,9 +533,9 @@ public:
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_version_nonces_mutex);
     void FinalizeNode(const Connection& conn) override
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_headers_presync_mutex, !m_version_nonces_mutex);
-    bool ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt) override
+    bool ProcessMessages(Connection* pfrom, std::atomic<bool>& interrupt) override
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_recent_confirmed_transactions_mutex, !m_most_recent_block_mutex, !m_headers_presync_mutex, !m_version_nonces_mutex, g_msgproc_mutex);
-    bool SendMessages(CNode* pto) override
+    bool SendMessages(Connection* pto) override
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_recent_confirmed_transactions_mutex, !m_most_recent_block_mutex, g_msgproc_mutex);
 
     /** Implement PeerManager */
@@ -549,14 +549,14 @@ public:
     void RelayTransaction(const uint256& txid, const uint256& wtxid) override EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);
     void SetBestHeight(int height) override { m_best_height = height; };
     void UnitTestMisbehaving(NodeId peer_id, int howmuch) override EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex) { Misbehaving(*Assert(GetPeerRef(peer_id)), howmuch, ""); };
-    void ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
+    void ProcessMessage(Connection& pfrom, const std::string& msg_type, CDataStream& vRecv,
                         const std::chrono::microseconds time_received, const std::atomic<bool>& interruptMsgProc) override
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_recent_confirmed_transactions_mutex, !m_most_recent_block_mutex, !m_headers_presync_mutex, !m_version_nonces_mutex, g_msgproc_mutex);
     void UpdateLastBlockAnnounceTime(NodeId node, int64_t time_in_seconds) override;
 
 private:
     /** Consider evicting an outbound peer based on the amount of time they've been behind our tip */
-    void ConsiderEviction(CNode& pto, Peer& peer, std::chrono::seconds time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main, g_msgproc_mutex);
+    void ConsiderEviction(Connection& pto, Peer& peer, std::chrono::seconds time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main, g_msgproc_mutex);
 
     /** If we have extra outbound peers, try to disconnect the one with the oldest block announcement */
     void EvictExtraOutboundPeers(std::chrono::seconds now) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
@@ -609,7 +609,7 @@ private:
      * @param[in]   peer      The peer object to check.
      * @return                True if the peer was marked for disconnection in this function
      */
-    bool MaybeDiscourageAndDisconnect(CNode& pnode, Peer& peer);
+    bool MaybeDiscourageAndDisconnect(Connection& pnode, Peer& peer);
 
     /**
      * Reconsider orphan transactions after a parent has been accepted to the mempool.
@@ -627,12 +627,12 @@ private:
 
     /** Process a single headers message from a peer.
      *
-     * @param[in]   pfrom     CNode of the peer
+     * @param[in]   pfrom     Connection of the peer
      * @param[in]   peer      The peer sending us the headers
      * @param[in]   headers   The headers received. Note that this may be modified within ProcessHeadersMessage.
      * @param[in]   via_compact_block   Whether this header came in via compact block handling.
     */
-    void ProcessHeadersMessage(CNode& pfrom, Peer& peer,
+    void ProcessHeadersMessage(Connection& pfrom, Peer& peer,
                                std::vector<CBlockHeader>&& headers,
                                bool via_compact_block)
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_headers_presync_mutex, g_msgproc_mutex);
@@ -644,7 +644,7 @@ private:
     /** Deal with state tracking and headers sync for peers that send the
      * occasional non-connecting header (this can happen due to BIP 130 headers
      * announcements for blocks interacting with the 2hr (MAX_FUTURE_BLOCK_TIME) rule). */
-    void HandleFewUnconnectingHeaders(CNode& pfrom, Peer& peer, const std::vector<CBlockHeader>& headers) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
+    void HandleFewUnconnectingHeaders(Connection& pfrom, Peer& peer, const std::vector<CBlockHeader>& headers) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
     /** Return true if the headers connect to each other, false otherwise */
     bool CheckHeadersAreContinuous(const std::vector<CBlockHeader>& headers) const;
     /** Try to continue a low-work headers sync that has already begun.
@@ -652,7 +652,7 @@ private:
      * checked that each header satisfies the proof-of-work target included in
      * the header.
      *  @param[in]  peer                            The peer we're syncing with.
-     *  @param[in]  pfrom                           CNode of the peer
+     *  @param[in]  pfrom                           Connection of the peer
      *  @param[in,out] headers                      The headers to be processed.
      *  @return     True if the passed in headers were successfully processed
      *              as the continuation of a low-work headers sync in progress;
@@ -665,21 +665,21 @@ private:
      *              checks (and therefore may be validated for block index
      *              acceptance by the caller).
      */
-    bool IsContinuationOfLowWorkHeadersSync(Peer& peer, CNode& pfrom,
+    bool IsContinuationOfLowWorkHeadersSync(Peer& peer, Connection& pfrom,
             std::vector<CBlockHeader>& headers)
         EXCLUSIVE_LOCKS_REQUIRED(peer.m_headers_sync_mutex, !m_headers_presync_mutex, g_msgproc_mutex);
     /** Check work on a headers chain to be processed, and if insufficient,
      * initiate our anti-DoS headers sync mechanism.
      *
      * @param[in]   peer                The peer whose headers we're processing.
-     * @param[in]   pfrom               CNode of the peer
+     * @param[in]   pfrom               Connection of the peer
      * @param[in]   chain_start_header  Where these headers connect in our index.
      * @param[in,out]   headers             The headers to be processed.
      *
      * @return      True if chain was low work (headers will be empty after
      *              calling); false otherwise.
      */
-    bool TryLowWorkHeadersSync(Peer& peer, CNode& pfrom,
+    bool TryLowWorkHeadersSync(Peer& peer, Connection& pfrom,
                                   const CBlockIndex* chain_start_header,
                                   std::vector<CBlockHeader>& headers)
         EXCLUSIVE_LOCKS_REQUIRED(!peer.m_headers_sync_mutex, !m_peer_mutex, !m_headers_presync_mutex, g_msgproc_mutex);
@@ -692,18 +692,18 @@ private:
      * We don't issue a getheaders message if we have a recent one outstanding.
      * This returns true if a getheaders is actually sent, and false otherwise.
      */
-    bool MaybeSendGetHeaders(CNode& pfrom, const CBlockLocator& locator, Peer& peer) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
+    bool MaybeSendGetHeaders(Connection& pfrom, const CBlockLocator& locator, Peer& peer) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
     /** Potentially fetch blocks from this peer upon receipt of a new headers tip */
-    void HeadersDirectFetchBlocks(CNode& pfrom, const Peer& peer, const CBlockIndex& last_header);
+    void HeadersDirectFetchBlocks(Connection& pfrom, const Peer& peer, const CBlockIndex& last_header);
     /** Update peer state based on received headers message */
-    void UpdatePeerStateForReceivedHeaders(CNode& pfrom, const CBlockIndex& last_header, bool received_new_header, bool may_have_more_headers);
+    void UpdatePeerStateForReceivedHeaders(Connection& pfrom, const CBlockIndex& last_header, bool received_new_header, bool may_have_more_headers);
 
-    void SendBlockTransactions(CNode& pfrom, Peer& peer, const CBlock& block, const BlockTransactionsRequest& req);
+    void SendBlockTransactions(Connection& pfrom, Peer& peer, const CBlock& block, const BlockTransactionsRequest& req);
 
     /** Register with TxRequestTracker that an INV has been received from a
      *  peer. The announcement parameters are decided in PeerManager and then
      *  passed to TxRequestTracker. */
-    void AddTxAnnouncement(const CNode& node, const GenTxid& gtxid, std::chrono::microseconds current_time)
+    void AddTxAnnouncement(const Connection& node, const GenTxid& gtxid, std::chrono::microseconds current_time)
         EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
     /** Send a version message to a peer */
@@ -714,13 +714,13 @@ private:
      *  mark the peer to be disconnected if a ping has timed out.
      *  We use mockable time for ping timeouts, so setmocktime may cause pings
      *  to time out. */
-    void MaybeSendPing(CNode& node_to, Peer& peer, std::chrono::microseconds now);
+    void MaybeSendPing(Connection& node_to, Peer& peer, std::chrono::microseconds now);
 
     /** Send `addr` messages on a regular schedule. */
-    void MaybeSendAddr(CNode& node, Peer& peer, std::chrono::microseconds current_time) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
+    void MaybeSendAddr(Connection& node, Peer& peer, std::chrono::microseconds current_time) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
 
     /** Send a single `sendheaders` message, after we have completed headers sync with a peer. */
-    void MaybeSendSendHeaders(CNode& node, Peer& peer) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
+    void MaybeSendSendHeaders(Connection& node, Peer& peer) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
 
     /** Relay (gossip) an address to a few randomly chosen nodes.
      *
@@ -732,7 +732,7 @@ private:
     void RelayAddress(NodeId originator, const CAddress& addr, bool fReachable) EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, g_msgproc_mutex);
 
     /** Send `feefilter` message. */
-    void MaybeSendFeefilter(CNode& node, Peer& peer, std::chrono::microseconds current_time) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
+    void MaybeSendFeefilter(Connection& node, Peer& peer, std::chrono::microseconds current_time) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
 
     const CChainParams& m_chainparams;
     CConnman& m_connman;
@@ -936,13 +936,13 @@ private:
     std::atomic<std::chrono::seconds> m_last_tip_update{0s};
 
     /** Determine whether or not a peer can request a transaction, and return it (or nullptr if not found or not allowed). */
-    CTransactionRef FindTxForGetData(const CNode& peer, const GenTxid& gtxid, const std::chrono::seconds mempool_req, const std::chrono::seconds now) LOCKS_EXCLUDED(cs_main);
+    CTransactionRef FindTxForGetData(const Connection& peer, const GenTxid& gtxid, const std::chrono::seconds mempool_req, const std::chrono::seconds now) LOCKS_EXCLUDED(cs_main);
 
-    void ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic<bool>& interruptMsgProc)
+    void ProcessGetData(Connection& pfrom, Peer& peer, const std::atomic<bool>& interruptMsgProc)
         EXCLUSIVE_LOCKS_REQUIRED(!m_most_recent_block_mutex, peer.m_getdata_requests_mutex) LOCKS_EXCLUDED(::cs_main);
 
     /** Process a new block. Perform any post-processing housekeeping */
-    void ProcessBlock(CNode& node, const std::shared_ptr<const CBlock>& block, bool force_processing, bool min_pow_checked);
+    void ProcessBlock(Connection& node, const std::shared_ptr<const CBlock>& block, bool force_processing, bool min_pow_checked);
 
     /** Relay map (txid or wtxid -> CTransactionRef) */
     typedef std::map<uint256, CTransactionRef> MapRelay;
@@ -990,7 +990,7 @@ private:
      */
     bool BlockRequestAllowed(const CBlockIndex* pindex) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     bool AlreadyHaveBlock(const uint256& block_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
-    void ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& inv)
+    void ProcessGetBlockData(Connection& pfrom, Peer& peer, const CInv& inv)
         EXCLUSIVE_LOCKS_REQUIRED(!m_most_recent_block_mutex);
 
     /**
@@ -1008,7 +1008,7 @@ private:
      * @param[out]  filter_index    The filter index, if the request can be serviced.
      * @return                      True if the request can be serviced.
      */
-    bool PrepareBlockFilterRequest(CNode& node, Peer& peer,
+    bool PrepareBlockFilterRequest(Connection& node, Peer& peer,
                                    BlockFilterType filter_type, uint32_t start_height,
                                    const uint256& stop_hash, uint32_t max_height_diff,
                                    const CBlockIndex*& stop_index,
@@ -1023,7 +1023,7 @@ private:
      * @param[in]   peer            The peer that we received the request from
      * @param[in]   vRecv           The raw message received
      */
-    void ProcessGetCFilters(CNode& node, Peer& peer, CDataStream& vRecv);
+    void ProcessGetCFilters(Connection& node, Peer& peer, CDataStream& vRecv);
 
     /**
      * Handle a cfheaders request.
@@ -1034,7 +1034,7 @@ private:
      * @param[in]   peer            The peer that we received the request from
      * @param[in]   vRecv           The raw message received
      */
-    void ProcessGetCFHeaders(CNode& node, Peer& peer, CDataStream& vRecv);
+    void ProcessGetCFHeaders(Connection& node, Peer& peer, CDataStream& vRecv);
 
     /**
      * Handle a getcfcheckpt request.
@@ -1045,7 +1045,7 @@ private:
      * @param[in]   peer            The peer that we received the request from
      * @param[in]   vRecv           The raw message received
      */
-    void ProcessGetCFCheckPt(CNode& node, Peer& peer, CDataStream& vRecv);
+    void ProcessGetCFCheckPt(Connection& node, Peer& peer, CDataStream& vRecv);
 
     /** Checks if address relay is permitted with peer. If needed, initializes
      * the m_addr_known bloom filter and sets m_addr_relay_enabled to true.
@@ -1053,7 +1053,7 @@ private:
      *  @return   True if address relay is enabled with peer
      *            False if address relay is disallowed
      */
-    bool SetupAddressRelay(const CNode& node, Peer& peer) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
+    bool SetupAddressRelay(const Connection& node, Peer& peer) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
 
     void AddAddressKnown(Peer& peer, const CAddress& addr) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
     void PushAddress(Peer& peer, const CAddress& addr, FastRandomContext& insecure_rand) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
@@ -1247,12 +1247,12 @@ void PeerManagerImpl::MaybeSetPeerAsAnnouncingHeaderAndIDs(NodeId nodeid)
             }
         }
     }
-    m_connman.ForNode(nodeid, [this](CNode* pfrom) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+    m_connman.ForNode(nodeid, [this](Connection* pfrom) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
         AssertLockHeld(::cs_main);
         if (lNodesAnnouncingHeaderAndIDs.size() >= 3) {
             // As per BIP152, we only get 3 of our peers to announce
             // blocks using compact encodings.
-            m_connman.ForNode(lNodesAnnouncingHeaderAndIDs.front(), [this](CNode* pnodeStop) {
+            m_connman.ForNode(lNodesAnnouncingHeaderAndIDs.front(), [this](Connection* pnodeStop) {
                 PeerRef peer{GetPeerRef(pnodeStop->GetId())};
                 if (!peer) return false;
 
@@ -1450,7 +1450,7 @@ void PeerManagerImpl::PushNodeVersion(Connection& connection, const Peer& peer)
     }
 }
 
-void PeerManagerImpl::AddTxAnnouncement(const CNode& node, const GenTxid& gtxid, std::chrono::microseconds current_time)
+void PeerManagerImpl::AddTxAnnouncement(const Connection& node, const GenTxid& gtxid, std::chrono::microseconds current_time)
 {
     AssertLockHeld(::cs_main); // For m_txrequest
     NodeId nodeid = node.GetId();
@@ -1821,7 +1821,7 @@ std::optional<std::string> PeerManagerImpl::FetchBlock(NodeId peer_id, const CBl
     // Send block request message to the peer
 
     const CNetMsgMaker msgMaker(peer->m_greatest_common_version);
-    bool success = m_connman.ForNode(peer_id, [this, &invs, &msgMaker](CNode* node) {
+    bool success = m_connman.ForNode(peer_id, [this, &invs, &msgMaker](Connection* node) {
         this->m_connman.PushMessage(node, msgMaker.Make(NetMsgType::GETDATA, invs));
         return true;
     });
@@ -1954,7 +1954,7 @@ void PeerManagerImpl::NewPoWValidBlock(const CBlockIndex *pindex, const std::sha
         m_most_recent_compact_block = pcmpctblock;
     }
 
-    m_connman.ForEachNode([this, pindex, &lazy_ser, &hashBlock](CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+    m_connman.ForEachNode([this, pindex, &lazy_ser, &hashBlock](Connection* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
         AssertLockHeld(::cs_main);
         PeerRef peer{GetPeerRef(pnode->GetId())};
         if (!peer) return;
@@ -2164,7 +2164,7 @@ void PeerManagerImpl::RelayAddress(NodeId originator,
     }
 }
 
-void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& inv)
+void PeerManagerImpl::ProcessGetBlockData(Connection& pfrom, Peer& peer, const CInv& inv)
 {
     std::shared_ptr<const CBlock> a_recent_block;
     std::shared_ptr<const CBlockHeaderAndShortTxIDs> a_recent_compact_block;
@@ -2312,7 +2312,7 @@ void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& 
     }
 }
 
-CTransactionRef PeerManagerImpl::FindTxForGetData(const CNode& peer, const GenTxid& gtxid, const std::chrono::seconds mempool_req, const std::chrono::seconds now)
+CTransactionRef PeerManagerImpl::FindTxForGetData(const Connection& peer, const GenTxid& gtxid, const std::chrono::seconds mempool_req, const std::chrono::seconds now)
 {
     auto txinfo = m_mempool.info(gtxid);
     if (txinfo.tx) {
@@ -2339,7 +2339,7 @@ CTransactionRef PeerManagerImpl::FindTxForGetData(const CNode& peer, const GenTx
     return {};
 }
 
-void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic<bool>& interruptMsgProc)
+void PeerManagerImpl::ProcessGetData(Connection& pfrom, Peer& peer, const std::atomic<bool>& interruptMsgProc)
 {
     AssertLockNotHeld(cs_main);
 
@@ -2444,7 +2444,7 @@ uint32_t PeerManagerImpl::GetFetchFlags(const Peer& peer) const
     return nFetchFlags;
 }
 
-void PeerManagerImpl::SendBlockTransactions(CNode& pfrom, Peer& peer, const CBlock& block, const BlockTransactionsRequest& req)
+void PeerManagerImpl::SendBlockTransactions(Connection& pfrom, Peer& peer, const CBlock& block, const BlockTransactionsRequest& req)
 {
     BlockTransactions resp(req);
     for (size_t i = 0; i < req.indexes.size(); i++) {
@@ -2500,7 +2500,7 @@ arith_uint256 PeerManagerImpl::GetAntiDoSWorkThreshold()
  * Once a headers message is received that is valid and does connect,
  * nUnconnectingHeaders gets reset back to 0.
  */
-void PeerManagerImpl::HandleFewUnconnectingHeaders(CNode& pfrom, Peer& peer,
+void PeerManagerImpl::HandleFewUnconnectingHeaders(Connection& pfrom, Peer& peer,
         const std::vector<CBlockHeader>& headers)
 {
     const CNetMsgMaker msgMaker(peer.m_greatest_common_version);
@@ -2541,7 +2541,7 @@ bool PeerManagerImpl::CheckHeadersAreContinuous(const std::vector<CBlockHeader>&
     return true;
 }
 
-bool PeerManagerImpl::IsContinuationOfLowWorkHeadersSync(Peer& peer, CNode& pfrom, std::vector<CBlockHeader>& headers)
+bool PeerManagerImpl::IsContinuationOfLowWorkHeadersSync(Peer& peer, Connection& pfrom, std::vector<CBlockHeader>& headers)
 {
     if (peer.m_headers_sync) {
         auto result = peer.m_headers_sync->ProcessNextHeaders(headers, headers.size() == MAX_HEADERS_RESULTS);
@@ -2627,7 +2627,7 @@ bool PeerManagerImpl::IsContinuationOfLowWorkHeadersSync(Peer& peer, CNode& pfro
     return false;
 }
 
-bool PeerManagerImpl::TryLowWorkHeadersSync(Peer& peer, CNode& pfrom, const CBlockIndex* chain_start_header, std::vector<CBlockHeader>& headers)
+bool PeerManagerImpl::TryLowWorkHeadersSync(Peer& peer, Connection& pfrom, const CBlockIndex* chain_start_header, std::vector<CBlockHeader>& headers)
 {
     // Calculate the total work on this chain.
     arith_uint256 total_work = chain_start_header->nChainWork + CalculateHeadersWork(headers);
@@ -2685,7 +2685,7 @@ bool PeerManagerImpl::IsAncestorOfBestHeaderOrTip(const CBlockIndex* header)
     return false;
 }
 
-bool PeerManagerImpl::MaybeSendGetHeaders(CNode& pfrom, const CBlockLocator& locator, Peer& peer)
+bool PeerManagerImpl::MaybeSendGetHeaders(Connection& pfrom, const CBlockLocator& locator, Peer& peer)
 {
     const CNetMsgMaker msgMaker(peer.m_greatest_common_version);
 
@@ -2706,7 +2706,7 @@ bool PeerManagerImpl::MaybeSendGetHeaders(CNode& pfrom, const CBlockLocator& loc
  * We require that the given tip have at least as much work as our tip, and for
  * our current tip to be "close to synced" (see CanDirectFetch()).
  */
-void PeerManagerImpl::HeadersDirectFetchBlocks(CNode& pfrom, const Peer& peer, const CBlockIndex& last_header)
+void PeerManagerImpl::HeadersDirectFetchBlocks(Connection& pfrom, const Peer& peer, const CBlockIndex& last_header)
 {
     const CNetMsgMaker msgMaker(peer.m_greatest_common_version);
 
@@ -2773,7 +2773,7 @@ void PeerManagerImpl::HeadersDirectFetchBlocks(CNode& pfrom, const Peer& peer, c
  * whether that header was new and whether the headers message was full,
  * update the state we keep for the peer.
  */
-void PeerManagerImpl::UpdatePeerStateForReceivedHeaders(CNode& pfrom,
+void PeerManagerImpl::UpdatePeerStateForReceivedHeaders(Connection& pfrom,
         const CBlockIndex& last_header, bool received_new_header, bool may_have_more_headers)
 {
     LOCK(cs_main);
@@ -2828,7 +2828,7 @@ void PeerManagerImpl::UpdatePeerStateForReceivedHeaders(CNode& pfrom,
     }
 }
 
-void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, Peer& peer,
+void PeerManagerImpl::ProcessHeadersMessage(Connection& pfrom, Peer& peer,
                                             std::vector<CBlockHeader>&& headers,
                                             bool via_compact_block)
 {
@@ -3044,7 +3044,7 @@ bool PeerManagerImpl::ProcessOrphanTx(Peer& peer)
     return false;
 }
 
-bool PeerManagerImpl::PrepareBlockFilterRequest(CNode& node, Peer& peer,
+bool PeerManagerImpl::PrepareBlockFilterRequest(Connection& node, Peer& peer,
                                                 BlockFilterType filter_type, uint32_t start_height,
                                                 const uint256& stop_hash, uint32_t max_height_diff,
                                                 const CBlockIndex*& stop_index,
@@ -3097,7 +3097,7 @@ bool PeerManagerImpl::PrepareBlockFilterRequest(CNode& node, Peer& peer,
     return true;
 }
 
-void PeerManagerImpl::ProcessGetCFilters(CNode& node,Peer& peer, CDataStream& vRecv)
+void PeerManagerImpl::ProcessGetCFilters(Connection& node,Peer& peer, CDataStream& vRecv)
 {
     uint8_t filter_type_ser;
     uint32_t start_height;
@@ -3128,7 +3128,7 @@ void PeerManagerImpl::ProcessGetCFilters(CNode& node,Peer& peer, CDataStream& vR
     }
 }
 
-void PeerManagerImpl::ProcessGetCFHeaders(CNode& node, Peer& peer, CDataStream& vRecv)
+void PeerManagerImpl::ProcessGetCFHeaders(Connection& node, Peer& peer, CDataStream& vRecv)
 {
     uint8_t filter_type_ser;
     uint32_t start_height;
@@ -3172,7 +3172,7 @@ void PeerManagerImpl::ProcessGetCFHeaders(CNode& node, Peer& peer, CDataStream& 
     m_connman.PushMessage(&node, std::move(msg));
 }
 
-void PeerManagerImpl::ProcessGetCFCheckPt(CNode& node, Peer& peer, CDataStream& vRecv)
+void PeerManagerImpl::ProcessGetCFCheckPt(Connection& node, Peer& peer, CDataStream& vRecv)
 {
     uint8_t filter_type_ser;
     uint256 stop_hash;
@@ -3212,7 +3212,7 @@ void PeerManagerImpl::ProcessGetCFCheckPt(CNode& node, Peer& peer, CDataStream& 
     m_connman.PushMessage(&node, std::move(msg));
 }
 
-void PeerManagerImpl::ProcessBlock(CNode& node, const std::shared_ptr<const CBlock>& block, bool force_processing, bool min_pow_checked)
+void PeerManagerImpl::ProcessBlock(Connection& node, const std::shared_ptr<const CBlock>& block, bool force_processing, bool min_pow_checked)
 {
     bool new_block{false};
     m_chainman.ProcessNewBlock(block, force_processing, min_pow_checked, &new_block);
@@ -3224,7 +3224,7 @@ void PeerManagerImpl::ProcessBlock(CNode& node, const std::shared_ptr<const CBlo
     }
 }
 
-void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
+void PeerManagerImpl::ProcessMessage(Connection& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                      const std::chrono::microseconds time_received,
                                      const std::atomic<bool>& interruptMsgProc)
 {
@@ -4886,7 +4886,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
     return;
 }
 
-bool PeerManagerImpl::MaybeDiscourageAndDisconnect(CNode& pnode, Peer& peer)
+bool PeerManagerImpl::MaybeDiscourageAndDisconnect(Connection& pnode, Peer& peer)
 {
     {
         LOCK(peer.m_misbehavior_mutex);
@@ -4925,7 +4925,7 @@ bool PeerManagerImpl::MaybeDiscourageAndDisconnect(CNode& pnode, Peer& peer)
     return true;
 }
 
-bool PeerManagerImpl::ProcessMessages(CNode* pfrom, std::atomic<bool>& interruptMsgProc)
+bool PeerManagerImpl::ProcessMessages(Connection* pfrom, std::atomic<bool>& interruptMsgProc)
 {
     AssertLockHeld(g_msgproc_mutex);
 
@@ -5002,7 +5002,7 @@ bool PeerManagerImpl::ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt
     return fMoreWork;
 }
 
-void PeerManagerImpl::ConsiderEviction(CNode& pto, Peer& peer, std::chrono::seconds time_in_seconds)
+void PeerManagerImpl::ConsiderEviction(Connection& pto, Peer& peer, std::chrono::seconds time_in_seconds)
 {
     AssertLockHeld(cs_main);
 
@@ -5071,7 +5071,7 @@ void PeerManagerImpl::EvictExtraOutboundPeers(std::chrono::seconds now)
     if (m_connman.GetExtraBlockRelayCount() > 0) {
         std::pair<NodeId, std::chrono::seconds> youngest_peer{-1, 0}, next_youngest_peer{-1, 0};
 
-        m_connman.ForEachNode([&](CNode* pnode) {
+        m_connman.ForEachNode([&](Connection* pnode) {
             if (!pnode->IsBlockOnlyConn() || pnode->MarkedForDisconnect()) return;
             if (pnode->GetId() > youngest_peer.first) {
                 next_youngest_peer = youngest_peer;
@@ -5085,7 +5085,7 @@ void PeerManagerImpl::EvictExtraOutboundPeers(std::chrono::seconds now)
             // disconnect our second youngest.
             to_disconnect = next_youngest_peer.first;
         }
-        m_connman.ForNode(to_disconnect, [&](CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+        m_connman.ForNode(to_disconnect, [&](Connection* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
             AssertLockHeld(::cs_main);
             // Make sure we're not getting a block right now, and that
             // we've been connected long enough for this eviction to happen
@@ -5116,7 +5116,7 @@ void PeerManagerImpl::EvictExtraOutboundPeers(std::chrono::seconds now)
         NodeId worst_peer = -1;
         int64_t oldest_block_announcement = std::numeric_limits<int64_t>::max();
 
-        m_connman.ForEachNode([&](CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+        m_connman.ForEachNode([&](Connection* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
             AssertLockHeld(::cs_main);
 
             // Only consider outbound-full-relay peers that are not already
@@ -5132,7 +5132,7 @@ void PeerManagerImpl::EvictExtraOutboundPeers(std::chrono::seconds now)
             }
         });
         if (worst_peer != -1) {
-            bool disconnected = m_connman.ForNode(worst_peer, [&](CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+            bool disconnected = m_connman.ForNode(worst_peer, [&](Connection* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
                 AssertLockHeld(::cs_main);
 
                 // Only disconnect a peer that has been connected to us for
@@ -5190,7 +5190,7 @@ void PeerManagerImpl::CheckForStaleTipAndEvictPeers()
     }
 }
 
-void PeerManagerImpl::MaybeSendPing(CNode& node_to, Peer& peer, std::chrono::microseconds now)
+void PeerManagerImpl::MaybeSendPing(Connection& node_to, Peer& peer, std::chrono::microseconds now)
 {
     if (m_connman.ShouldRunInactivityChecks(node_to, std::chrono::duration_cast<std::chrono::seconds>(now)) &&
         peer.m_ping_nonce_sent &&
@@ -5234,7 +5234,7 @@ void PeerManagerImpl::MaybeSendPing(CNode& node_to, Peer& peer, std::chrono::mic
     }
 }
 
-void PeerManagerImpl::MaybeSendAddr(CNode& node, Peer& peer, std::chrono::microseconds current_time)
+void PeerManagerImpl::MaybeSendAddr(Connection& node, Peer& peer, std::chrono::microseconds current_time)
 {
     // Nothing to do for non-address-relay peers
     if (!peer.m_addr_relay_enabled) return;
@@ -5302,7 +5302,7 @@ void PeerManagerImpl::MaybeSendAddr(CNode& node, Peer& peer, std::chrono::micros
     }
 }
 
-void PeerManagerImpl::MaybeSendSendHeaders(CNode& node, Peer& peer)
+void PeerManagerImpl::MaybeSendSendHeaders(Connection& node, Peer& peer)
 {
     // Delay sending SENDHEADERS (BIP 130) until we're done with an
     // initial-headers-sync with this peer. Receiving headers announcements for
@@ -5323,7 +5323,7 @@ void PeerManagerImpl::MaybeSendSendHeaders(CNode& node, Peer& peer)
     }
 }
 
-void PeerManagerImpl::MaybeSendFeefilter(CNode& pto, Peer& peer, std::chrono::microseconds current_time)
+void PeerManagerImpl::MaybeSendFeefilter(Connection& pto, Peer& peer, std::chrono::microseconds current_time)
 {
     if (m_ignore_incoming_txs) return;
     if (peer.m_greatest_common_version < FEEFILTER_VERSION) return;
@@ -5397,7 +5397,7 @@ bool PeerManagerImpl::RejectIncomingTxs(const Connection& conn) const
     return false;
 }
 
-bool PeerManagerImpl::SetupAddressRelay(const CNode& node, Peer& peer)
+bool PeerManagerImpl::SetupAddressRelay(const Connection& node, Peer& peer)
 {
     // We don't participate in addr relay with outbound block-relay-only
     // connections to prevent providing adversaries with the additional
@@ -5414,7 +5414,7 @@ bool PeerManagerImpl::SetupAddressRelay(const CNode& node, Peer& peer)
     return true;
 }
 
-bool PeerManagerImpl::SendMessages(CNode* pto)
+bool PeerManagerImpl::SendMessages(Connection* pto)
 {
     AssertLockHeld(g_msgproc_mutex);
 
