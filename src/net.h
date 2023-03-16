@@ -85,6 +85,8 @@ static const int64_t DEFAULT_PEER_CONNECT_TIMEOUT = 60;
 /** Number of file descriptors required for message capture **/
 static const int NUM_FDS_MESSAGE_CAPTURE = 1;
 
+static constexpr size_t SOCK_RECV_BUF_SIZE{0x10000};
+
 static constexpr bool DEFAULT_FORCEDNSSEED{false};
 static constexpr bool DEFAULT_DNSSEED{true};
 static constexpr bool DEFAULT_FIXEDSEEDS{true};
@@ -357,18 +359,6 @@ struct CNodeOptions
 class CNode
 {
 public:
-    /**
-     * Socket used for communication with the node.
-     * May not own a Sock object (after `CloseSocketDisconnect()` or during tests).
-     * `shared_ptr` (instead of `unique_ptr`) is used to avoid premature close of
-     * the underlying file descriptor by one thread while another thread is
-     * poll(2)-ing it for activity.
-     * @see https://github.com/bitcoin/bitcoin/issues/21744 for details.
-     */
-    std::shared_ptr<Sock> m_sock GUARDED_BY(m_sock_mutex);
-
-    Mutex m_sock_mutex;
-
     std::atomic<std::chrono::seconds> m_last_send{0s};
     std::atomic<std::chrono::seconds> m_last_recv{0s};
     //! Unix epoch time at peer connection
@@ -413,6 +403,19 @@ public:
     {
         return *Assert(m_serializer);
     }
+
+    void AddSocketEvents(Sock::EventsPerSock& events_per_sock) const
+        EXCLUSIVE_LOCKS_REQUIRED(!m_send_queue_mutex, !m_sock_mutex);
+
+    struct OccurredSockEvents {
+        const bool recv, send, error;
+    };
+    std::optional<OccurredSockEvents> QueryOccurredSockEvents(
+        const Sock::EventsPerSock& events_per_sock) const
+        EXCLUSIVE_LOCKS_REQUIRED(!m_sock_mutex);
+
+    std::optional<int> RecvFromSock(uint8_t (&buf)[SOCK_RECV_BUF_SIZE]) const
+        EXCLUSIVE_LOCKS_REQUIRED(!m_sock_mutex);
 
     /** Move all messages from the received queue to the processing queue. */
     void MarkReceivedMsgsForProcessing()
@@ -654,6 +657,17 @@ private:
     uint64_t m_send_bytes GUARDED_BY(m_send_queue_mutex){0};
     std::deque<std::vector<unsigned char>> m_send_queue GUARDED_BY(m_send_queue_mutex);
     mutable Mutex m_send_queue_mutex;
+
+    /**
+     * Socket used for communication with the node.
+     * May not own a Sock object (after `CloseSocketDisconnect()` or during tests).
+     * `shared_ptr` (instead of `unique_ptr`) is used to avoid premature close of
+     * the underlying file descriptor by one thread while another thread is
+     * poll(2)-ing it for activity.
+     * @see https://github.com/bitcoin/bitcoin/issues/21744 for details.
+     */
+    std::shared_ptr<Sock> m_sock GUARDED_BY(m_sock_mutex);
+    mutable Mutex m_sock_mutex;
 
     // Our address, as reported by the peer
     CService addrLocal GUARDED_BY(m_addr_local_mutex);

@@ -1163,33 +1163,7 @@ Sock::EventsPerSock CConnman::GenerateWaitSockets(Span<CNode* const> nodes)
     }
 
     for (CNode* pnode : nodes) {
-        // Implement the following logic:
-        // * If there is data to send, select() for sending data. As this only
-        //   happens when optimistic write failed, we choose to first drain the
-        //   write buffer in this case before receiving more. This avoids
-        //   needlessly queueing received data, if the remote peer is not themselves
-        //   receiving data. This means properly utilizing TCP flow control signalling.
-        // * Otherwise, if there is space left in the receive buffer, select() for
-        //   receiving data.
-        // * Hand off all complete messages to the processor, to be handled without
-        //   blocking here.
-
-        bool select_recv = !pnode->IsReceivingPaused();
-        bool select_send{!pnode->IsSendQueueEmpty()};
-
-        LOCK(pnode->m_sock_mutex);
-        if (!pnode->m_sock) {
-            continue;
-        }
-
-        Sock::Event requested{0};
-        if (select_send) {
-            requested = Sock::SEND;
-        } else if (select_recv) {
-            requested = Sock::RECV;
-        }
-
-        events_per_sock.emplace(pnode->m_sock, Sock::Events{requested});
+        pnode->AddSocketEvents(events_per_sock);
     }
 
     return events_per_sock;
@@ -1235,33 +1209,23 @@ void CConnman::SocketHandlerConnected(const std::vector<CNode*>& nodes,
         //
         // Receive
         //
-        bool recvSet = false;
-        bool sendSet = false;
-        bool errorSet = false;
-        {
-            LOCK(pnode->m_sock_mutex);
-            if (!pnode->m_sock) {
-                continue;
-            }
-            const auto it = events_per_sock.find(pnode->m_sock);
-            if (it != events_per_sock.end()) {
-                recvSet = it->second.occurred & Sock::RECV;
-                sendSet = it->second.occurred & Sock::SEND;
-                errorSet = it->second.occurred & Sock::ERR;
-            }
+        const auto query_result = pnode->QueryOccurredSockEvents(events_per_sock);
+        if (!query_result) {
+            continue;
         }
+        const auto& [recvSet, sendSet, errorSet] = *query_result;
+
         if (recvSet || errorSet)
         {
             // typical socket buffer is 8K-64K
-            uint8_t pchBuf[0x10000];
-            int nBytes = 0;
-            {
-                LOCK(pnode->m_sock_mutex);
-                if (!pnode->m_sock) {
-                    continue;
-                }
-                nBytes = pnode->m_sock->Recv(pchBuf, sizeof(pchBuf), MSG_DONTWAIT);
+            uint8_t pchBuf[SOCK_RECV_BUF_SIZE];
+            int nBytes{0};
+            if (auto result = pnode->RecvFromSock(pchBuf)) {
+                nBytes = *result;
+            } else {
+                continue;
             }
+
             if (nBytes > 0)
             {
                 bool notify = false;
@@ -2706,8 +2670,7 @@ CNode::CNode(NodeId idIn,
              ConnectionType conn_type_in,
              bool inbound_onion,
              CNodeOptions&& node_opts)
-    : m_sock{sock},
-      m_connected{GetTime<std::chrono::seconds>()},
+    : m_connected{GetTime<std::chrono::seconds>()},
       addr{addrIn},
       addrBind{addrBindIn},
       m_addr_name{addrNameIn.empty() ? addr.ToStringAddrPort() : addrNameIn},
@@ -2719,6 +2682,7 @@ CNode::CNode(NodeId idIn,
       nLocalHostNonce{nLocalHostNonceIn},
       m_permission_flags{node_opts.permission_flags},
       m_recv_flood_size{node_opts.recv_flood_size},
+      m_sock{sock},
       m_i2p_sam_session{std::move(node_opts.i2p_sam_session)},
       m_deserializer{std::make_unique<V1TransportDeserializer>(V1TransportDeserializer(Params(), idIn, SER_NETWORK, INIT_PROTO_VERSION))},
       m_serializer{std::make_unique<V1TransportSerializer>(V1TransportSerializer())}
@@ -2734,6 +2698,66 @@ CNode::CNode(NodeId idIn,
     } else {
         LogPrint(BCLog::NET, "Added connection peer=%d\n", id);
     }
+}
+
+void CNode::AddSocketEvents(Sock::EventsPerSock& events_per_sock) const
+{
+    // Implement the following logic:
+    // * If there is data to send, select() for sending data. As this only
+    //   happens when optimistic write failed, we choose to first drain the
+    //   write buffer in this case before receiving more. This avoids
+    //   needlessly queueing received data, if the remote peer is not themselves
+    //   receiving data. This means properly utilizing TCP flow control signalling.
+    // * Otherwise, if there is space left in the receive buffer, select() for
+    //   receiving data.
+    // * Hand off all complete messages to the processor, to be handled without
+    //   blocking here.
+
+    bool select_recv = !IsReceivingPaused();
+    bool select_send{!IsSendQueueEmpty()};
+
+    LOCK(m_sock_mutex);
+    if (!m_sock) {
+        return;
+    }
+
+    Sock::Event requested{0};
+    if (select_send) {
+        requested = Sock::SEND;
+    } else if (select_recv) {
+        requested = Sock::RECV;
+    }
+
+    events_per_sock.emplace(m_sock, Sock::Events{requested});
+}
+
+std::optional<CNode::OccurredSockEvents> CNode::QueryOccurredSockEvents(
+    const Sock::EventsPerSock& events_per_sock) const
+{
+    LOCK(m_sock_mutex);
+    if (!m_sock) {
+        return std::nullopt;
+    }
+
+    const auto it = events_per_sock.find(m_sock);
+    if (it == events_per_sock.end()) {
+        return std::nullopt;
+    }
+
+    return OccurredSockEvents{
+        static_cast<bool>(it->second.occurred & Sock::RECV),
+        static_cast<bool>(it->second.occurred & Sock::SEND),
+        static_cast<bool>(it->second.occurred & Sock::ERR),
+    };
+}
+
+std::optional<int> CNode::RecvFromSock(uint8_t (&buf)[SOCK_RECV_BUF_SIZE]) const
+{
+    LOCK(m_sock_mutex);
+    if (!m_sock) {
+        return std::nullopt;
+    }
+    return m_sock->Recv(buf, SOCK_RECV_BUF_SIZE, MSG_DONTWAIT);
 }
 
 void CNode::MarkReceivedMsgsForProcessing()
