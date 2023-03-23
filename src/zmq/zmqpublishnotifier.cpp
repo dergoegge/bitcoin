@@ -254,15 +254,9 @@ bool CZMQPublishRawBlockNotifier::NotifyBlock(const CBlockIndex *pindex)
 
     const Consensus::Params& consensusParams = Params().GetConsensus();
 
-    // Instantiating a const BlockManager to read a block. It cannot change its
-    // internal state, but does take a cs_main lock when reading data.
-    BlockManagerOpts blockman_opts{};
-    Assert(!ApplyArgsManOptions(gArgs, blockman_opts)); // already checked on init
-    const BlockManager blockman{blockman_opts};
-
     CDataStream ss(SER_NETWORK, PROTOCOL_VERSION | RPCSerializationFlags());
     CBlock block;
-    if (!blockman.ReadBlockFromDisk(block, pindex, consensusParams)) {
+    if (!m_blockman.ReadBlockFromDisk(block, pindex, consensusParams)) {
         zmqError("Can't read block from disk");
         return false;
     }
