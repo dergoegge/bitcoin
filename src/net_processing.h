@@ -46,7 +46,7 @@ struct PeerStats {
 class PeerManager : public CValidationInterface, public NetEventsInterface
 {
 public:
-    static std::unique_ptr<PeerManager> make(CConnman& connman, AddrMan& addrman, EvictionManager& evictionman,
+    static std::unique_ptr<PeerManager> make(ConnectionsInterface& connman, AddrMan& addrman, EvictionManager& evictionman,
                                              BanMan* banman, ChainstateManager& chainman,
                                              CTxMemPool& pool, bool ignore_incoming_txs);
     virtual ~PeerManager() { }
