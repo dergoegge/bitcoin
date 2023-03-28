@@ -754,7 +754,61 @@ protected:
     ~NetEventsInterface() = default;
 };
 
-class CConnman
+class ConnectionsInterface
+{
+public:
+    virtual bool ForNode(NodeId id, std::function<bool(Connection*)> func) = 0;
+    using NodeFn = std::function<void(Connection*)>;
+    virtual void ForEachNode(const NodeFn& func) = 0;
+    virtual void ForEachNode(const NodeFn& func) const = 0;
+    virtual void PushMessage(Connection* conn, CSerializedNetMsg&& msg) = 0;
+    /** Get a unique deterministic randomizer. */
+    virtual CSipHasher GetDeterministicRandomizer(uint64_t id) const = 0;
+    virtual void WakeMessageHandler() = 0;
+    //! check if the outbound target is reached
+    //! if param historicalBlockServingLimit is set true, the function will
+    //! response true if the limit for serving historical blocks has been reached
+    virtual bool OutboundTargetReached(bool historicalBlockServingLimit) const = 0;
+    /**
+     * Return all or many randomly selected addresses, optionally by network.
+     *
+     * @param[in] max_addresses  Maximum number of addresses to return (0 = all).
+     * @param[in] max_pct        Maximum percentage of addresses to return (0 = all).
+     * @param[in] network        Select only addresses of this network (nullopt = all).
+     */
+    virtual std::vector<CAddress> GetAddresses(size_t max_addresses, size_t max_pct, std::optional<Network> network) const = 0;
+    /**
+     * Cache is used to minimize topology leaks, so it should
+     * be used for all non-trusted calls, for example, p2p.
+     * A non-malicious call (from RPC or a peer with addr permission) should
+     * call the function without a parameter to avoid using the cache.
+     */
+    virtual std::vector<CAddress> GetAddresses(Connection& requestor, size_t max_addresses, size_t max_pct) = 0;
+    virtual bool DisconnectNode(const CNetAddr& addr) = 0;
+    // Return the number of outbound peers we have in excess of our target (eg,
+    // if we previously called SetTryNewOutboundPeer(true), and have since set
+    // to false, we may have extra peers that we wish to disconnect). This may
+    // return a value less than (num_outbound_connections - num_outbound_slots)
+    // in cases where some outbound connections are not yet fully connected, or
+    // not yet fully disconnected.
+    virtual int GetExtraFullOutboundCount() const = 0;
+    // Count the number of block-relay-only peers we have over our limit.
+    virtual int GetExtraBlockRelayCount() const = 0;
+    // This allows temporarily exceeding m_max_outbound_full_relay, with the goal of finding
+    // a peer that is better than all our current peers.
+    virtual void SetTryNewOutboundPeer(bool flag) = 0;
+    virtual bool GetTryNewOutboundPeer() const = 0;
+    virtual bool GetNetworkActive() const = 0;
+    virtual bool GetUseAddrmanOutgoing() const = 0;
+    virtual void StartExtraBlockRelayPeers() = 0;
+    /** Return true if we should disconnect the peer for failing an inactivity check. */
+    virtual bool ShouldRunInactivityChecks(const Connection& node, std::chrono::seconds now) const = 0;
+
+protected:
+    ~ConnectionsInterface() = default;
+};
+
+class CConnman : public ConnectionsInterface
 {
 public:
 
@@ -820,7 +874,7 @@ public:
     CConnman(uint64_t seed0, uint64_t seed1, AddrMan& addrman, const NetGroupManager& netgroupman,
              EvictionManager& evictionman, bool network_active = true);
 
-    ~CConnman();
+    virtual ~CConnman();
 
     bool Start(CScheduler& scheduler, const Options& options) EXCLUSIVE_LOCKS_REQUIRED(!m_total_bytes_sent_mutex, !m_added_nodes_mutex, !m_addr_fetches_mutex, !mutexMsgProc);
 
@@ -833,17 +887,18 @@ public:
     };
 
     void Interrupt() EXCLUSIVE_LOCKS_REQUIRED(!mutexMsgProc);
-    bool GetNetworkActive() const { return fNetworkActive; };
-    bool GetUseAddrmanOutgoing() const { return m_use_addrman_outgoing; };
+    bool GetNetworkActive() const override { return fNetworkActive; };
+    bool GetUseAddrmanOutgoing() const override { return m_use_addrman_outgoing; };
     void SetNetworkActive(bool active);
     void OpenNetworkConnection(const CAddress& addrConnect, bool fCountFailure, CSemaphoreGrant* grantOutbound, const char* strDest, ConnectionType conn_type) EXCLUSIVE_LOCKS_REQUIRED(!m_unused_i2p_sessions_mutex);
 
-    bool ForNode(NodeId id, std::function<bool(Connection* pnode)> func);
+    bool ForNode(NodeId id, std::function<bool(Connection* pnode)> func) override;
 
-    void PushMessage(Connection* conn, CSerializedNetMsg&& msg) EXCLUSIVE_LOCKS_REQUIRED(!m_total_bytes_sent_mutex);
+    void PushMessage(Connection* conn, CSerializedNetMsg&& msg) override
+        EXCLUSIVE_LOCKS_REQUIRED(!m_total_bytes_sent_mutex);
 
     using NodeFn = std::function<void(Connection*)>;
-    void ForEachNode(const NodeFn& func)
+    void ForEachNode(const NodeFn& func) override
     {
         LOCK(m_nodes_mutex);
         for (auto&& node : m_nodes) {
@@ -852,7 +907,7 @@ public:
         }
     };
 
-    void ForEachNode(const NodeFn& func) const
+    void ForEachNode(const NodeFn& func) const override
     {
         LOCK(m_nodes_mutex);
         for (auto&& node : m_nodes) {
@@ -861,39 +916,16 @@ public:
         }
     };
 
-    // Addrman functions
-    /**
-     * Return all or many randomly selected addresses, optionally by network.
-     *
-     * @param[in] max_addresses  Maximum number of addresses to return (0 = all).
-     * @param[in] max_pct        Maximum percentage of addresses to return (0 = all).
-     * @param[in] network        Select only addresses of this network (nullopt = all).
-     */
-    std::vector<CAddress> GetAddresses(size_t max_addresses, size_t max_pct, std::optional<Network> network) const;
-    /**
-     * Cache is used to minimize topology leaks, so it should
-     * be used for all non-trusted calls, for example, p2p.
-     * A non-malicious call (from RPC or a peer with addr permission) should
-     * call the function without a parameter to avoid using the cache.
-     */
-    std::vector<CAddress> GetAddresses(Connection& requestor, size_t max_addresses, size_t max_pct);
+    std::vector<CAddress> GetAddresses(size_t max_addresses, size_t max_pct, std::optional<Network> network) const override;
+    std::vector<CAddress> GetAddresses(Connection& requestor, size_t max_addresses, size_t max_pct) override;
 
-    // This allows temporarily exceeding m_max_outbound_full_relay, with the goal of finding
-    // a peer that is better than all our current peers.
-    void SetTryNewOutboundPeer(bool flag);
-    bool GetTryNewOutboundPeer() const;
+    void SetTryNewOutboundPeer(bool flag) override;
+    bool GetTryNewOutboundPeer() const override;
 
-    void StartExtraBlockRelayPeers();
+    void StartExtraBlockRelayPeers() override;
 
-    // Return the number of outbound peers we have in excess of our target (eg,
-    // if we previously called SetTryNewOutboundPeer(true), and have since set
-    // to false, we may have extra peers that we wish to disconnect). This may
-    // return a value less than (num_outbound_connections - num_outbound_slots)
-    // in cases where some outbound connections are not yet fully connected, or
-    // not yet fully disconnected.
-    int GetExtraFullOutboundCount() const;
-    // Count the number of block-relay-only peers we have over our limit.
-    int GetExtraBlockRelayCount() const;
+    int GetExtraFullOutboundCount() const override;
+    int GetExtraBlockRelayCount() const override;
 
     bool AddNode(const std::string& node) EXCLUSIVE_LOCKS_REQUIRED(!m_added_nodes_mutex);
     bool RemoveAddedNode(const std::string& node) EXCLUSIVE_LOCKS_REQUIRED(!m_added_nodes_mutex);
@@ -917,7 +949,7 @@ public:
     void GetNodeStats(std::vector<CNodeStats>& vstats) const;
     bool DisconnectNode(const std::string& node);
     bool DisconnectNode(const CSubNet& subnet);
-    bool DisconnectNode(const CNetAddr& addr);
+    bool DisconnectNode(const CNetAddr& addr) override;
     bool DisconnectNode(NodeId id);
 
     //! Used to convey which local services we are offering peers during node
@@ -931,10 +963,8 @@ public:
     uint64_t GetMaxOutboundTarget() const EXCLUSIVE_LOCKS_REQUIRED(!m_total_bytes_sent_mutex);
     std::chrono::seconds GetMaxOutboundTimeframe() const;
 
-    //! check if the outbound target is reached
-    //! if param historicalBlockServingLimit is set true, the function will
-    //! response true if the limit for serving historical blocks has been reached
-    bool OutboundTargetReached(bool historicalBlockServingLimit) const EXCLUSIVE_LOCKS_REQUIRED(!m_total_bytes_sent_mutex);
+    bool OutboundTargetReached(bool historicalBlockServingLimit) const override
+        EXCLUSIVE_LOCKS_REQUIRED(!m_total_bytes_sent_mutex);
 
     //! response the bytes left in the current max outbound cycle
     //! in case of no limit, it will always response 0
@@ -945,13 +975,12 @@ public:
     uint64_t GetTotalBytesRecv() const;
     uint64_t GetTotalBytesSent() const EXCLUSIVE_LOCKS_REQUIRED(!m_total_bytes_sent_mutex);
 
-    /** Get a unique deterministic randomizer. */
-    CSipHasher GetDeterministicRandomizer(uint64_t id) const;
+    CSipHasher GetDeterministicRandomizer(uint64_t id) const override;
 
-    void WakeMessageHandler() EXCLUSIVE_LOCKS_REQUIRED(!mutexMsgProc);
+    void WakeMessageHandler() override EXCLUSIVE_LOCKS_REQUIRED(!mutexMsgProc);
 
     /** Return true if we should disconnect the peer for failing an inactivity check. */
-    bool ShouldRunInactivityChecks(const Connection& node, std::chrono::seconds now) const;
+    bool ShouldRunInactivityChecks(const Connection& node, std::chrono::seconds now) const override;
 
 private:
     struct ListenSocket {
