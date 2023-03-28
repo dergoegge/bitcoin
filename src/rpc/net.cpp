@@ -9,6 +9,7 @@
 #include <chainparams.h>
 #include <clientversion.h>
 #include <core_io.h>
+#include <net.h>
 #include <net_permissions.h>
 #include <net_processing.h>
 #include <net_types.h> // For banmap_t

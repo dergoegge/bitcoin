@@ -210,6 +210,7 @@ BITCOIN_CORE_H = \
   node/coin.h \
   node/coins_view_args.h \
   node/connection_types.h \
+  node/connections.h \
   node/context.h \
   node/database_args.h \
   node/eviction.h \
@@ -400,6 +401,7 @@ libbitcoin_node_a_SOURCES = \
   node/coin.cpp \
   node/coins_view_args.cpp \
   node/connection_types.cpp \
+  node/connections.cpp \
   node/context.cpp \
   node/database_args.cpp \
   node/eviction.cpp \

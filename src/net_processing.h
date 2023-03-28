@@ -6,13 +6,19 @@
 #ifndef BITCOIN_NET_PROCESSING_H
 #define BITCOIN_NET_PROCESSING_H
 
-#include <net.h>
+#include <node/connections.h>
+#include <node/eviction.h>
 #include <validationinterface.h>
 
 class AddrMan;
+class BanMan;
 class CChainParams;
 class CTxMemPool;
 class ChainstateManager;
+
+using node::Connection;
+using node::ConnectionsInterface;
+using node::NetEventsInterface;
 
 /** Default for -maxorphantx, maximum number of orphan transactions kept in memory */
 static const unsigned int DEFAULT_MAX_ORPHAN_TRANSACTIONS = 100;
