@@ -47,6 +47,7 @@
 #include <node/mempool_args.h>
 #include <node/mempool_persist_args.h>
 #include <node/miner.h>
+#include <node/net.h>
 #include <node/txreconciliation.h>
 #include <node/validation_cache_args.h>
 #include <policy/feerate.h>
@@ -124,6 +125,14 @@ using node::NodeContext;
 using node::ThreadImport;
 using node::VerifyLoadedChainstate;
 using node::fReindex;
+using node::Discover;
+using node::IsReachable;
+using node::SetReachable;
+using node::LOCAL_MANUAL;
+using node::GetListenPort;
+using node::strSubVersion; 
+using node::fListen;
+using node::fDiscover;
 
 static constexpr bool DEFAULT_PROXYRANDOMIZE{true};
 static constexpr bool DEFAULT_REST_ENABLE{false};

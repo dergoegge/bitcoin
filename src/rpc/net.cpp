@@ -14,6 +14,7 @@
 #include <net_types.h> // For banmap_t
 #include <netbase.h>
 #include <node/context.h>
+#include <node/net.h>
 #include <policy/settings.h>
 #include <rpc/blockchain.h>
 #include <rpc/protocol.h>
@@ -34,6 +35,12 @@
 #include <univalue.h>
 
 using node::NodeContext;
+using node::LocalServiceInfo;
+using node::IsReachable;
+using node::strSubVersion;
+using node::g_maplocalhost_mutex;
+using node::mapLocalHost;
+using node::MaybeFlipIPv6toCJDNS;
 
 const std::vector<std::string> CONNECTION_TYPE_DOC{
         "outbound-full-relay (default automatic connections)",

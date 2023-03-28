@@ -219,6 +219,7 @@ BITCOIN_CORE_H = \
   node/mempool_persist_args.h \
   node/miner.h \
   node/minisketchwrapper.h \
+  node/net.h \
   node/psbt.h \
   node/transaction.h \
   node/txreconciliation.h \
@@ -408,6 +409,7 @@ libbitcoin_node_a_SOURCES = \
   node/mempool_persist_args.cpp \
   node/miner.cpp \
   node/minisketchwrapper.cpp \
+  node/net.cpp \
   node/psbt.cpp \
   node/transaction.cpp \
   node/txreconciliation.cpp \

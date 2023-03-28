@@ -9,9 +9,10 @@
 #include <chainparamsbase.h>
 #include <compat/compat.h>
 #include <crypto/hmac_sha256.h>
-#include <net.h>
 #include <netaddress.h>
 #include <netbase.h>
+#include <node/net.h>
+#include <util/check.h>
 #include <util/readwritefile.h>
 #include <util/strencodings.h>
 #include <util/syscall_sandbox.h>
@@ -29,6 +30,10 @@
 #include <event2/event.h>
 #include <event2/thread.h>
 #include <event2/util.h>
+
+using node::RemoveLocal;
+using node::SetReachable;
+using node::LOCAL_MANUAL;
 
 /** Default control port */
 const std::string DEFAULT_TOR_CONTROL = "127.0.0.1:9051";

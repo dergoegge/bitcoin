@@ -22,6 +22,7 @@
 #include <netmessagemaker.h>
 #include <node/blockstorage.h>
 #include <node/eviction.h>
+#include <node/net.h>
 #include <node/txreconciliation.h>
 #include <policy/fees.h>
 #include <policy/policy.h>
@@ -52,8 +53,13 @@
 #include <optional>
 #include <typeinfo>
 
+using node::CaptureMessage;
+using node::fListen;
+using node::IsReachable;
 using node::ReadBlockFromDisk;
 using node::ReadRawBlockFromDisk;
+using node::SeenLocal;
+using node::strSubVersion;
 
 /** How long to cache transactions in mapRelay for normal relay */
 static constexpr auto RELAY_TX_CACHE_TIME = 15min;

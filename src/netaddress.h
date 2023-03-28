@@ -535,6 +535,13 @@ public:
     std::vector<unsigned char> GetKey() const;
     std::string ToStringAddrPort() const;
 
+    void MaybeFlipToCJDNS()
+    {
+        if (m_net == NET_IPV6 && m_addr[0] == 0xfc) {
+            m_net = NET_CJDNS;
+        }
+    }
+
     CService(const struct in6_addr& ipv6Addr, uint16_t port);
     explicit CService(const struct sockaddr_in6& addr);
 
@@ -545,7 +552,6 @@ public:
     }
 
     friend class CServiceHash;
-    friend CService MaybeFlipIPv6toCJDNS(const CService& service);
 };
 
 class CServiceHash
