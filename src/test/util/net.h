@@ -8,6 +8,7 @@
 #include <compat/compat.h>
 #include <net.h>
 #include <netaddress.h>
+#include <node/connections.h>
 #include <node/eviction_impl.h>
 #include <util/sock.h>
 
@@ -195,5 +196,106 @@ private:
 };
 
 std::vector<NodeEvictionCandidate> GetRandomNodeEvictionCandidates(int n_candidates, FastRandomContext& random_context);
+
+// TODO move const data functions to ConnectionContext and inherit from Connection instead
+class MockConnection : public CNode
+{
+public:
+    MockConnection(ConnectionContext&& conn_ctx) : CNode(std::move(conn_ctx), nullptr) {}
+
+    bool IsSendingPaused() const override { return false; }
+
+    size_t PushMessage(node::CSerializedNetMsg&& msg, unsigned int max_buf_size) override
+    {
+        ++m_message_types_received[msg.m_type];
+        m_received_messages.emplace_back(std::move(msg));
+        return 0;
+    }
+
+    std::optional<std::pair<node::CNetMessage, bool>> PollMessage() override
+    {
+        if (m_send_queue.empty()) return std::nullopt;
+
+        auto& msg = m_send_queue.front();
+
+        CNetMessage net_msg(CDataStream{msg.data, SER_NETWORK, PROTOCOL_VERSION});
+        net_msg.m_type = msg.m_type;
+        net_msg.m_message_size = msg.data.size();
+        net_msg.m_time = GetTime<std::chrono::microseconds>();
+
+        m_send_queue.pop_front();
+
+        return std::make_pair(std::move(net_msg), !m_send_queue.empty());
+    }
+
+    CService GetAddrLocal() const override { return CService(); }
+    void SetAddrLocal(const CService& addrLocalIn) override {}
+
+    std::deque<node::CSerializedNetMsg> m_send_queue;
+    std::deque<node::CSerializedNetMsg> m_received_messages;
+    std::map<std::string, uint64_t> m_message_types_received;
+};
+
+
+/** Mock the connections interface. */
+class MockConnectionsInterface : public ConnectionsInterface
+{
+public:
+    bool ForNode(NodeId id, std::function<bool(Connection* pnode)> func) override
+    {
+        auto& conn = m_conns.at(id);
+        return !conn.MarkedForDisconnect() && conn.IsSuccessfullyConnected() && func(&conn);
+    }
+    using NodeFn = std::function<void(Connection*)>;
+    void ForEachNode(const NodeFn& func) override
+    {
+        for (auto& [id, conn] : m_conns) {
+            if (!conn.MarkedForDisconnect() && conn.IsSuccessfullyConnected()) func(&conn);
+        }
+    }
+    void ForEachNode(const NodeFn& func) const override
+    {
+        for (auto& [id, conn] : m_conns) {
+            if (!conn.MarkedForDisconnect() && conn.IsSuccessfullyConnected()) func((Connection*)&conn);
+        }
+    }
+    void PushMessage(Connection* conn, CSerializedNetMsg&& msg) override
+    {
+        m_conns.at(conn->GetId()).PushMessage(std::move(msg), 0);
+    }
+    CSipHasher GetDeterministicRandomizer(uint64_t id) const override { return {0, 0}; }
+    void WakeMessageHandler() override {}
+    bool OutboundTargetReached(bool historicalBlockServingLimit) const override { return true; }
+    std::vector<CAddress> GetAddresses(size_t max_addresses,
+                                       size_t max_pct,
+                                       std::optional<Network> network) const override { return {}; }
+    std::vector<CAddress> GetAddresses(Connection& requestor, size_t max_addresses, size_t max_pct) override { return {}; }
+    bool DisconnectNode(const CNetAddr& addr) override { return true; }
+    int GetExtraFullOutboundCount() const override
+    {
+        int extra{0};
+        for (auto& [id, conn] : m_conns)
+            extra += conn.IsFullOutboundConn();
+        return std::max(0, extra - MAX_OUTBOUND_FULL_RELAY_CONNECTIONS);
+    }
+    int GetExtraBlockRelayCount() const override { return 0; }
+    void SetTryNewOutboundPeer(bool flag) override { m_try_new_outbound = flag; }
+    bool GetTryNewOutboundPeer() const override { return m_try_new_outbound; }
+    bool GetNetworkActive() const override { return true; }
+    bool GetUseAddrmanOutgoing() const override { return true; }
+    void StartExtraBlockRelayPeers() override {}
+    bool ShouldRunInactivityChecks(const Connection& node, std::chrono::seconds now) const override { return true; }
+
+    virtual ~MockConnectionsInterface() {}
+
+    MockConnection& AddMockConnection(ConnectionContext&& ctx)
+    {
+        auto it = m_conns.emplace_hint(m_conns.end(), ctx.id, std::move(ctx));
+        return it->second;
+    }
+
+    std::map<NodeId, MockConnection> m_conns;
+    bool m_try_new_outbound{false};
+};
 
 #endif // BITCOIN_TEST_UTIL_NET_H

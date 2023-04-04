@@ -33,6 +33,8 @@
 
 using namespace std::literals;
 
+using namespace node;
+
 BOOST_FIXTURE_TEST_SUITE(net_tests, RegTestingSetup)
 
 BOOST_AUTO_TEST_CASE(cnode_listen_port)
