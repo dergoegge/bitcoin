@@ -171,8 +171,9 @@ void signal_handler(int signal)
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
     static const auto& test_one_input = *Assert(g_test_one_input);
-    test_one_input({data, size});
-    return 0;
+    auto result = test_one_input({data, size});
+    /* Returning -1 means the input was not useful. */
+    return (result != FuzzResult::UNINTERESTING) - 1;
 }
 
 // This function is used by libFuzzer
@@ -202,7 +203,7 @@ int main(int argc, char** argv)
         if (!read_stdin(buffer)) {
             continue;
         }
-        test_one_input(buffer);
+        (void)test_one_input(buffer);
     }
 #else
     std::vector<uint8_t> buffer;
@@ -210,7 +211,7 @@ int main(int argc, char** argv)
         if (!read_stdin(buffer)) {
             return 0;
         }
-        test_one_input(buffer);
+        (void)test_one_input(buffer);
         return 0;
     }
     std::signal(SIGABRT, signal_handler);
@@ -223,14 +224,14 @@ int main(int argc, char** argv)
                 if (!fs::is_regular_file(it->path())) continue;
                 g_input_path = it->path();
                 Assert(read_file(it->path(), buffer));
-                test_one_input(buffer);
+                (void)test_one_input(buffer);
                 ++tested;
                 buffer.clear();
             }
         } else {
             g_input_path = input_path;
             Assert(read_file(input_path, buffer));
-            test_one_input(buffer);
+            (void)test_one_input(buffer);
             ++tested;
             buffer.clear();
         }
