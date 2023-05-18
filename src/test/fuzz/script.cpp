@@ -30,6 +30,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <bitset>
 
 void initialize_script()
 {
@@ -165,3 +166,107 @@ FUZZ_TARGET_INIT(script, initialize_script)
         }
     }
 }
+
+void DebugPrint(const CScript& script, SigVersion sig_ver, std::pair<uint32_t, uint32_t> flags,
+                std::pair<bool, bool> oks, std::pair<std::vector<std::vector<uint8_t>>, std::vector<std::vector<uint8_t>>> stacks)
+{
+    std::cout << "script: " << ScriptToAsmStr(script) << std::endl;
+    std::cout << "flags0=" << std::bitset<32>(flags.first) << " flags1=" << std::bitset<32>(flags.second) << std::endl;
+    std::cout << "ok0=" << oks.first << " ok1=" << oks.second << std::endl;
+    std::cout << "sig_ver=" << (int)sig_ver << std::endl;
+
+    std::cout << "begin stack0:" << std::endl;
+    for (auto& elem : stacks.first) {
+        std::cout << "-> "
+                  << "'" << HexStr(elem) << "'" << std::endl;
+    }
+    std::cout << "end stack0" << std::endl;
+
+    std::cout << "begin stack1:" << std::endl;
+    for (auto& elem : stacks.second) {
+        std::cout << "-> "
+                  << "'" << HexStr(elem) << "'" << std::endl;
+    }
+    std::cout << "end stack1" << std::endl;
+}
+
+class SigChecker : public BaseSignatureChecker
+{
+    bool CheckECDSASignature(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey,
+                             const CScript& scriptCode, SigVersion sigversion) const override
+    {
+        CSipHasher hasher{0, 0};
+        return hasher.Write(scriptSig.data(), scriptSig.size())
+                   .Write(vchPubKey.data(), vchPubKey.size())
+                   .Finalize() &
+               1;
+    }
+
+    bool CheckSchnorrSignature(Span<const unsigned char> sig, Span<const unsigned char> pubkey,
+                               SigVersion sigversion, ScriptExecutionData& execdata,
+                               ScriptError* serror = nullptr) const override
+    {
+        CSipHasher hasher{0, 0};
+        return hasher.Write(sig.data(), sig.size())
+                   .Write(pubkey.data(), pubkey.size())
+                   .Finalize() &
+               1;
+    }
+
+    bool CheckLockTime(const CScriptNum& nLockTime) const override { return nLockTime.GetInt64() & 1; }
+    bool CheckSequence(const CScriptNum& nSequence) const override { return nSequence.GetInt64() & 1; }
+};
+
+FUZZ_TARGET(script_stack_compare)
+{
+    FuzzedDataProvider fuzzed_data_provider{buffer.data(), buffer.size()};
+
+    int64_t tapscript_validation_weight_left{fuzzed_data_provider.ConsumeIntegral<int64_t>()};
+
+    uint32_t flags{fuzzed_data_provider.ConsumeIntegral<uint32_t>()};
+    uint32_t flags_to_reduce{fuzzed_data_provider.ConsumeIntegral<uint32_t>()};
+    uint32_t flags_ = flags & ~flags_to_reduce;
+
+    auto script_bytes = fuzzed_data_provider.ConsumeRemainingBytes<uint8_t>();
+    CScript script{script_bytes.cbegin(), script_bytes.cend()};
+
+    for (auto sig_ver : {SigVersion::BASE, SigVersion::WITNESS_V0, SigVersion::TAPSCRIPT}) {
+        std::vector<std::vector<uint8_t>> stack;
+        ScriptExecutionData execdata;
+        execdata.m_validation_weight_left_init = true;
+        execdata.m_validation_weight_left = tapscript_validation_weight_left;
+        bool ok = EvalScript(stack, script, flags, SigChecker(), sig_ver, execdata);
+
+        std::vector<std::vector<uint8_t>> stack_;
+        ScriptExecutionData execdata_;
+        execdata_.m_validation_weight_left_init = true;
+        execdata_.m_validation_weight_left = tapscript_validation_weight_left;
+        bool ok_ = EvalScript(stack_, script, flags_, SigChecker(), sig_ver, execdata_);
+
+        if (!(!ok || ok_)) {
+            // If script was valid under `flags` it should also be valid under `flags & ~(1 << flag_to_reduce)`.
+            DebugPrint(script, sig_ver, {flags, flags_}, {ok, ok_}, {stack, stack_});
+            abort();
+        }
+
+        // Stacks will only be equal if both scripts are valid.
+        if (!ok || !ok_) continue;
+
+        CSipHasher hasher{0, 0}, hasher_{0, 0};
+        for (auto& elem : stack) {
+            hasher.Write(elem.data(), elem.size());
+        }
+        for (auto& elem : stack_) {
+            hasher_.Write(elem.data(), elem.size());
+        }
+
+        auto stack_hash{hasher.Finalize()};
+        auto stack_hash_{hasher_.Finalize()};
+        if (stack_hash != stack_hash_) {
+            // If script was valid under both sets of flags, then the stacks should be the same.
+            DebugPrint(script, sig_ver, {flags, flags_}, {ok, ok_}, {stack, stack_});
+            abort();
+        }
+    }
+}
+
