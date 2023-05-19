@@ -1,0 +1,9 @@
+homepage: "https://github.com/dergoegge/bitcoin"
+main_repo: 'https://github.com/dergoegge/bitcoin.git'
+language: c++
+primary_contact: "n.goeggi@gmail.com"
+auto_ccs:
+  - "n.goeggi@gmail.com"
+sanitizers:
+  - address
+  - undefined
