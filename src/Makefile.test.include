@@ -273,6 +273,7 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/fees.cpp \
  test/fuzz/flatfile.cpp \
  test/fuzz/float.cpp \
+ test/fuzz/snapshot_validation.cpp \
  test/fuzz/golomb_rice.cpp \
  test/fuzz/headerssync.cpp \
  test/fuzz/hex.cpp \

@@ -209,6 +209,12 @@ AC_ARG_ENABLE([fuzz],
     [enable_fuzz=$enableval],
     [enable_fuzz=no])
 
+AC_ARG_ENABLE([snapshot-fuzz],
+    AS_HELP_STRING([--enable-snapshot-fuzz],
+    [build for snapshot fuzzing (default no).]),
+    [enable_snapshot_fuzz=$enableval],
+    [enable_snapshot_fuzz=no])
+
 AC_ARG_ENABLE([fuzz-binary],
     AS_HELP_STRING([--enable-fuzz-binary],
     [enable building of fuzz binary (default yes).]),
@@ -1347,6 +1353,10 @@ else
 fi
 
 if test "$enable_fuzz_binary" = "yes"; then
+  if test "$enable_snapshot_fuzz" = "yes"; then
+    CORE_CPPFLAGS="$CORE_CPPFLAGS -DSNAPSHOT_FUZZ"
+  fi
+
   AC_MSG_CHECKING([whether main function is needed for fuzz binary])
   AX_CHECK_LINK_FLAG(
     [],
