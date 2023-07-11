@@ -602,6 +602,9 @@ private:
             const MempoolAcceptResult& atmp_result)
         EXCLUSIVE_LOCKS_REQUIRED(cs_main, !m_peer_mutex, g_msgproc_mutex);
 
+    void MaybeAddToOrphanage(CNode& connection, Peer& peer, const CTransactionRef& tx)
+        EXCLUSIVE_LOCKS_REQUIRED(cs_main, g_msgproc_mutex, !m_recent_confirmed_transactions_mutex);
+
     /** Process a single headers message from a peer.
      *
      * @param[in]   pfrom     CNode of the peer
@@ -3067,6 +3070,70 @@ PeerManagerImpl::ProcessMempoolAcceptance(Peer& peer, const CTransactionRef& tx,
     return REJECTED;
 }
 
+void PeerManagerImpl::MaybeAddToOrphanage(CNode& connection, Peer& peer, const CTransactionRef& tx)
+{
+    AssertLockHeld(cs_main);
+    AssertLockHeld(g_msgproc_mutex);
+    AssertLockNotHeld(m_recent_confirmed_transactions_mutex);
+
+    bool fRejectedParents = false; // It may be the case that the orphans parents have all been rejected
+
+    // Deduplicate parent txids, so that we don't have to loop over
+    // the same parent txid more than once down below.
+    std::vector<uint256> unique_parents;
+    unique_parents.reserve(tx->vin.size());
+    for (const CTxIn& txin : tx->vin) {
+        // We start with all parents, and then remove duplicates below.
+        unique_parents.push_back(txin.prevout.hash);
+    }
+    std::sort(unique_parents.begin(), unique_parents.end());
+    unique_parents.erase(std::unique(unique_parents.begin(), unique_parents.end()), unique_parents.end());
+    for (const uint256& parent_txid : unique_parents) {
+        if (m_recent_rejects.contains(parent_txid)) {
+            fRejectedParents = true;
+            break;
+        }
+    }
+    if (!fRejectedParents) {
+        const auto current_time{GetTime<std::chrono::microseconds>()};
+
+        for (const uint256& parent_txid : unique_parents) {
+            // Here, we only have the txid (and not wtxid) of the
+            // inputs, so we only request in txid mode, even for
+            // wtxidrelay peers.
+            // Eventually we should replace this with an improved
+            // protocol for getting all unconfirmed parents.
+            const auto gtxid{GenTxid::Txid(parent_txid)};
+            AddKnownTx(peer, parent_txid);
+            if (!AlreadyHaveTx(gtxid)) AddTxAnnouncement(connection, gtxid, current_time);
+        }
+
+        if (m_orphanage.AddTx(tx, peer.m_id)) {
+            AddToCompactExtraTransactions(tx);
+        }
+
+        // Once added to the orphan pool, a tx is considered AlreadyHave, and we shouldn't request it anymore.
+        m_txrequest.ForgetTxHash(tx->GetHash());
+        m_txrequest.ForgetTxHash(tx->GetWitnessHash());
+
+        // DoS prevention: do not allow m_orphanage to grow unbounded (see CVE-2012-3789)
+        unsigned int nMaxOrphanTx = (unsigned int)std::max((int64_t)0, gArgs.GetIntArg("-maxorphantx", DEFAULT_MAX_ORPHAN_TRANSACTIONS));
+        m_orphanage.LimitOrphans(nMaxOrphanTx);
+    } else {
+        LogPrint(BCLog::MEMPOOL, "not keeping orphan with rejected parents %s\n", tx->GetHash().ToString());
+        // We will continue to reject this tx since it has rejected
+        // parents so avoid re-requesting it from other peers.
+        // Here we add both the txid and the wtxid, as we know that
+        // regardless of what witness is provided, we will not accept
+        // this, so we don't need to allow for redownload of this txid
+        // from any of our non-wtxidrelay peers.
+        m_recent_rejects.insert(tx->GetHash());
+        m_recent_rejects.insert(tx->GetWitnessHash());
+        m_txrequest.ForgetTxHash(tx->GetHash());
+        m_txrequest.ForgetTxHash(tx->GetWitnessHash());
+    }
+}
+
 bool PeerManagerImpl::PrepareBlockFilterRequest(CNode& node, Peer& peer,
                                                 BlockFilterType filter_type, uint32_t start_height,
                                                 const uint256& stop_hash, uint32_t max_height_diff,
@@ -4225,65 +4292,9 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         const TxValidationState& state = result.m_state;
 
         switch (ProcessMempoolAcceptance(*peer, ptx, result)) {
-        case POTENTIAL_ORPHAN: {
-            bool fRejectedParents = false; // It may be the case that the orphans parents have all been rejected
-
-            // Deduplicate parent txids, so that we don't have to loop over
-            // the same parent txid more than once down below.
-            std::vector<uint256> unique_parents;
-            unique_parents.reserve(tx.vin.size());
-            for (const CTxIn& txin : tx.vin) {
-                // We start with all parents, and then remove duplicates below.
-                unique_parents.push_back(txin.prevout.hash);
-            }
-            std::sort(unique_parents.begin(), unique_parents.end());
-            unique_parents.erase(std::unique(unique_parents.begin(), unique_parents.end()), unique_parents.end());
-            for (const uint256& parent_txid : unique_parents) {
-                if (m_recent_rejects.contains(parent_txid)) {
-                    fRejectedParents = true;
-                    break;
-                }
-            }
-            if (!fRejectedParents) {
-                const auto current_time{GetTime<std::chrono::microseconds>()};
-
-                for (const uint256& parent_txid : unique_parents) {
-                    // Here, we only have the txid (and not wtxid) of the
-                    // inputs, so we only request in txid mode, even for
-                    // wtxidrelay peers.
-                    // Eventually we should replace this with an improved
-                    // protocol for getting all unconfirmed parents.
-                    const auto gtxid{GenTxid::Txid(parent_txid)};
-                    AddKnownTx(*peer, parent_txid);
-                    if (!AlreadyHaveTx(gtxid)) AddTxAnnouncement(pfrom, gtxid, current_time);
-                }
-
-                if (m_orphanage.AddTx(ptx, pfrom.GetId())) {
-                    AddToCompactExtraTransactions(ptx);
-                }
-
-                // Once added to the orphan pool, a tx is considered AlreadyHave, and we shouldn't request it anymore.
-                m_txrequest.ForgetTxHash(tx.GetHash());
-                m_txrequest.ForgetTxHash(tx.GetWitnessHash());
-
-                // DoS prevention: do not allow m_orphanage to grow unbounded (see CVE-2012-3789)
-                unsigned int nMaxOrphanTx = (unsigned int)std::max((int64_t)0, gArgs.GetIntArg("-maxorphantx", DEFAULT_MAX_ORPHAN_TRANSACTIONS));
-                m_orphanage.LimitOrphans(nMaxOrphanTx);
-            } else {
-                LogPrint(BCLog::MEMPOOL, "not keeping orphan with rejected parents %s\n", tx.GetHash().ToString());
-                // We will continue to reject this tx since it has rejected
-                // parents so avoid re-requesting it from other peers.
-                // Here we add both the txid and the wtxid, as we know that
-                // regardless of what witness is provided, we will not accept
-                // this, so we don't need to allow for redownload of this txid
-                // from any of our non-wtxidrelay peers.
-                m_recent_rejects.insert(tx.GetHash());
-                m_recent_rejects.insert(tx.GetWitnessHash());
-                m_txrequest.ForgetTxHash(tx.GetHash());
-                m_txrequest.ForgetTxHash(tx.GetWitnessHash());
-            }
+        case POTENTIAL_ORPHAN:
+            MaybeAddToOrphanage(pfrom, *peer, ptx);
             break;
-        }
         case RELAYED:
             LogPrint(BCLog::MEMPOOL, "AcceptToMemoryPool: peer=%d: accepted %s (poolsz %u txn, %u kB)\n",
                      pfrom.GetId(),
