@@ -29,7 +29,7 @@
 #include <utility>
 #include <vector>
 
-#ifdef __AFL_FUZZ_INIT
+#ifdef __AFL_FUZZ_INIT && defined(PROVIDE_FUZZ_MAIN_FUNCTION)
 __AFL_FUZZ_INIT();
 #endif
 
