@@ -192,6 +192,12 @@ int main(int argc, char** argv)
 {
     initialize();
     static const auto& test_one_input = *Assert(g_test_one_input);
+
+#ifdef SNAPSHOT_FUZZ
+    test_one_input({});
+    return 0;
+#endif
+
 #ifdef __AFL_LOOP
     // Enable AFL persistent mode. Requires compilation using afl-clang-fast++.
     // See fuzzing.md for details.
