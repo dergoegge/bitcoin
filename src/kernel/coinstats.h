@@ -20,6 +20,7 @@ class CScript;
 namespace node {
 class BlockManager;
 } // namespace node
+class HashWriter;
 
 namespace kernel {
 enum class CoinStatsHashType {
@@ -75,6 +76,8 @@ uint64_t GetBogoSize(const CScript& script_pub_key);
 DataStream TxOutSer(const COutPoint& outpoint, const Coin& coin);
 
 std::optional<CCoinsStats> ComputeUTXOStats(CoinStatsHashType hash_type, CCoinsView* view, node::BlockManager& blockman, const std::function<void()>& interruption_point = {});
+
+void ApplyHash(HashWriter& ss, const uint256& hash, const std::map<uint32_t, Coin>& outputs);
 } // namespace kernel
 
 #endif // BITCOIN_KERNEL_COINSTATS_H

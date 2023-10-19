@@ -69,7 +69,7 @@ DataStream TxOutSer(const COutPoint& outpoint, const Coin& coin)
 //! It is also possible, though very unlikely, that a change in this
 //! construction could cause a previously invalid (and potentially malicious)
 //! UTXO snapshot to be considered valid.
-static void ApplyHash(HashWriter& ss, const uint256& hash, const std::map<uint32_t, Coin>& outputs)
+void ApplyHash(HashWriter& ss, const uint256& hash, const std::map<uint32_t, Coin>& outputs)
 {
     for (auto it = outputs.begin(); it != outputs.end(); ++it) {
         if (it == outputs.begin()) {
