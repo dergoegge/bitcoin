@@ -58,7 +58,10 @@ add_executable(fuzz
   locale.cpp
   merkleblock.cpp
   message.cpp
-  miniscript.cpp
+  miniscript_script.cpp
+  miniscript_smart.cpp
+  miniscript_stable.cpp
+  miniscript_string.cpp
   minisketch.cpp
   mini_miner.cpp
   mini_miner_selection.cpp
