@@ -38,6 +38,7 @@ add_executable(fuzz
   crypto_fschacha20.cpp
   crypto_hkdf_hmac_sha256_l32.cpp
   crypto_poly1305.cpp
+  crypto_poly1305_split.cpp
   cuckoocache.cpp
   data_stream_addr_man.cpp
   decode_tx.cpp
