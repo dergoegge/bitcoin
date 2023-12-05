@@ -43,7 +43,6 @@ add_executable(fuzz
   data_stream_addr_man.cpp
   decode_tx.cpp
   descriptor_parse.cpp
-  deserialize.cpp
   ellswift_roundtrip.cpp
   eval_script.cpp
   fee_rate.cpp
@@ -81,7 +80,6 @@ add_executable(fuzz
   p2p_transport_bidirectional_v1v2.cpp
   p2p_transport_bidirectional_v2.cpp
   p2p_transport_serialization.cpp
-  tx_package_eval.cpp
   parse_hd_keypath.cpp
   parse_numbers.cpp
   parse_script.cpp
@@ -127,7 +125,6 @@ add_executable(fuzz
   transaction.cpp
   tx_in.cpp
   tx_out.cpp
-  tx_pool.cpp
   txorphan.cpp
   txrequest.cpp
   utxo_snapshot.cpp
