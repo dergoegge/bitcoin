@@ -13,7 +13,7 @@ add_executable(fuzz
   banman.cpp
   base_encode_decode.cpp
   bech32.cpp
-  bip324.cpp
+  bip324_cipher_roundtrip.cpp
   bitdeque.cpp
   block.cpp
   block_header.cpp
@@ -43,7 +43,7 @@ add_executable(fuzz
   flatfile.cpp
   float.cpp
   golomb_rice.cpp
-  headerssync.cpp
+  headers_sync_state.cpp
   hex.cpp
   http_request.cpp
   integer.cpp
@@ -65,7 +65,7 @@ add_executable(fuzz
   netbase_dns_lookup.cpp
   node_eviction.cpp
   p2p_transport_serialization.cpp
-  package_eval.cpp
+  tx_package_eval.cpp
   parse_hd_keypath.cpp
   parse_numbers.cpp
   parse_script.cpp
@@ -73,7 +73,7 @@ add_executable(fuzz
   partially_downloaded_block.cpp
   policy_estimator.cpp
   policy_estimator_io.cpp
-  poolresource.cpp
+  pool_resource.cpp
   pow.cpp
   prevector.cpp
   primitives_transaction.cpp
@@ -103,7 +103,7 @@ add_executable(fuzz
   span.cpp
   spanparsing.cpp
   string.cpp
-  strprintf.cpp
+  str_printf.cpp
   system.cpp
   timedata.cpp
   torcontrol.cpp
@@ -136,9 +136,9 @@ if(ENABLE_WALLET)
     PRIVATE
       ${CMAKE_SOURCE_DIR}/src/wallet/test/fuzz/coincontrol.cpp
       ${CMAKE_SOURCE_DIR}/src/wallet/test/fuzz/coinselection.cpp
-      ${CMAKE_SOURCE_DIR}/src/wallet/test/fuzz/fees.cpp
+      ${CMAKE_SOURCE_DIR}/src/wallet/test/fuzz/wallet_fees.cpp
       ${CMAKE_SOURCE_DIR}/src/wallet/test/fuzz/parse_iso8601.cpp
-      $<$<BOOL:${USE_SQLITE}>:${CMAKE_SOURCE_DIR}/src/wallet/test/fuzz/notifications.cpp>
+      $<$<BOOL:${USE_SQLITE}>:${CMAKE_SOURCE_DIR}/src/wallet/test/fuzz/wallet_notifications.cpp>
   )
   target_link_libraries(fuzz bitcoin_wallet)
 endif()
