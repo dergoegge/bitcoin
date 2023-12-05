@@ -15,6 +15,7 @@ add_executable(fuzz
   base_encode_decode.cpp
   bech32.cpp
   bip324_cipher_roundtrip.cpp
+  bip324_ecdh.cpp
   bitdeque.cpp
   block.cpp
   block_header.cpp
@@ -39,6 +40,7 @@ add_executable(fuzz
   decode_tx.cpp
   descriptor_parse.cpp
   deserialize.cpp
+  ellswift_roundtrip.cpp
   eval_script.cpp
   fee_rate.cpp
   fees.cpp
