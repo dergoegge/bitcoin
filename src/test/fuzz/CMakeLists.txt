@@ -7,6 +7,7 @@ add_subdirectory(util)
 add_executable(fuzz
   addition_overflow.cpp
   addrman.cpp
+  addrman_serdeser.cpp
   asmap.cpp
   asmap_direct.cpp
   autofile.cpp
@@ -34,6 +35,7 @@ add_executable(fuzz
   crypto_hkdf_hmac_sha256_l32.cpp
   crypto_poly1305.cpp
   cuckoocache.cpp
+  data_stream_addr_man.cpp
   decode_tx.cpp
   descriptor_parse.cpp
   deserialize.cpp
