@@ -68,6 +68,7 @@ add_executable(fuzz
   minisketch.cpp
   mini_miner.cpp
   mini_miner_selection.cpp
+  mocked_descriptor_parse.cpp
   muhash.cpp
   multiplication_overflow.cpp
   net.cpp

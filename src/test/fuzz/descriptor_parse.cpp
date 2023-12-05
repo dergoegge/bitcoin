@@ -11,35 +11,10 @@
 #include <util/chaintype.h>
 #include <util/strencodings.h>
 
-//! The converter of mocked descriptors, needs to be initialized when the target is.
-MockedDescriptorConverter MOCKED_DESC_CONVERTER;
-
 void initialize_descriptor_parse()
 {
     ECC_Start();
     SelectParams(ChainType::MAIN);
-}
-
-void initialize_mocked_descriptor_parse()
-{
-    initialize_descriptor_parse();
-    MOCKED_DESC_CONVERTER.Init();
-}
-
-FUZZ_TARGET(mocked_descriptor_parse, .init = initialize_mocked_descriptor_parse)
-{
-    // Key derivation is expensive. Deriving deep derivation paths take a lot of compute and we'd
-    // rather spend time elsewhere in this target, like on the actual descriptor syntax. So rule
-    // out strings which could correspond to a descriptor containing a too large derivation path.
-    if (HasDeepDerivPath(buffer)) return;
-
-    const std::string mocked_descriptor{buffer.begin(), buffer.end()};
-    if (const auto descriptor = MOCKED_DESC_CONVERTER.GetDescriptor(mocked_descriptor)) {
-        FlatSigningProvider signing_provider;
-        std::string error;
-        const auto desc = Parse(*descriptor, signing_provider, error);
-        if (desc) TestDescriptor(*desc, signing_provider, error);
-    }
 }
 
 FUZZ_TARGET(descriptor_parse, .init = initialize_descriptor_parse)
