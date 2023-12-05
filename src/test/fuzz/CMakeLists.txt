@@ -69,6 +69,9 @@ add_executable(fuzz
   netaddress.cpp
   netbase_dns_lookup.cpp
   node_eviction.cpp
+  p2p_transport_bidirectional.cpp
+  p2p_transport_bidirectional_v1v2.cpp
+  p2p_transport_bidirectional_v2.cpp
   p2p_transport_serialization.cpp
   tx_package_eval.cpp
   parse_hd_keypath.cpp
