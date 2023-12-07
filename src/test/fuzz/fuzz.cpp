@@ -9,6 +9,7 @@
 #include <test/util/setup_common.h>
 #include <util/check.h>
 #include <util/fs.h>
+#include <util/macros.h>
 #include <util/sock.h>
 #include <util/time.h>
 
@@ -90,6 +91,12 @@ void initialize()
         }
         return WrappedGetAddrInfo(name, false);
     };
+
+#ifdef SINGLE_FUZZ_HARNESS
+    fuzz_init();
+    g_test_one_input = &fuzz_test_one_input;
+    return;
+#endif
 
     bool should_exit{false};
     if (std::getenv("PRINT_ALL_FUZZ_TARGETS_AND_ABORT")) {

@@ -35,14 +35,33 @@ void FuzzFrameworkRegisterTarget(std::string_view name, TypeTestOneInput target,
 
 #define FUZZ_TARGET(...) DETAIL_FUZZ(__VA_ARGS__)
 
-#define DETAIL_FUZZ(name, ...)                                                        \
-    void name##_fuzz_target(FuzzBufferType);                                          \
-    struct name##_Before_Main {                                                       \
-        name##_Before_Main()                                                          \
-        {                                                                             \
-            FuzzFrameworkRegisterTarget(#name, name##_fuzz_target, {__VA_ARGS__});    \
-        }                                                                             \
-    } const static g_##name##_before_main;                                            \
+#ifdef SINGLE_FUZZ_HARNESS
+
+// Not namespacing `fuzz_init` and `fuzz_test_one_input` with `name` acts as
+// the "only one harness per binary" linter.
+const std::function<std::string(const char*)> G_TRANSLATION_FUN = nullptr;
+void fuzz_init();
+void fuzz_test_one_input(FuzzBufferType buffer);
+#define DETAIL_FUZZ(name, ...)               \
+    void fuzz_init()                         \
+    {                                        \
+        FuzzTargetOptions opts{__VA_ARGS__}; \
+        opts.init();                         \
+    }                                        \
+    void fuzz_test_one_input(FuzzBufferType buffer)
+
+#else
+
+#define DETAIL_FUZZ(name, ...)                                                     \
+    void name##_fuzz_target(FuzzBufferType);                                       \
+    struct name##_Before_Main {                                                    \
+        name##_Before_Main()                                                       \
+        {                                                                          \
+            FuzzFrameworkRegisterTarget(#name, name##_fuzz_target, {__VA_ARGS__}); \
+        }                                                                          \
+    } const static g_##name##_before_main;                                         \
     void name##_fuzz_target(FuzzBufferType buffer)
+
+#endif
 
 #endif // BITCOIN_TEST_FUZZ_FUZZ_H
