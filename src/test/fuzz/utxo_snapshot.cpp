@@ -28,6 +28,8 @@ void initialize_chain()
     g_chain = &chain;
 }
 
+} // namespace
+
 FUZZ_TARGET(utxo_snapshot, .init = initialize_chain)
 {
     FuzzedDataProvider fuzzed_data_provider(buffer.data(), buffer.size());
@@ -89,4 +91,3 @@ FUZZ_TARGET(utxo_snapshot, .init = initialize_chain)
     // Snapshot should refuse to load a second time regardless of validity
     Assert(!ActivateFuzzedSnapshot());
 }
-} // namespace

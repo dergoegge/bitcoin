@@ -29,6 +29,8 @@ void initialize_miner()
     }
 }
 
+} // namespace
+
 // Test that the MiniMiner can run with various outpoints and feerates.
 FUZZ_TARGET(mini_miner, .init = initialize_miner)
 {
@@ -104,5 +106,3 @@ FUZZ_TARGET(mini_miner, .init = initialize_miner)
     // Overlapping ancestry across multiple outpoints can only reduce the total bump fee.
     assert (sum_fees >= *total_bumpfee);
 }
-
-} // namespace

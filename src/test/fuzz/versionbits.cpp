@@ -111,6 +111,8 @@ void initialize()
 
 constexpr uint32_t MAX_START_TIME = 4102444800; // 2100-01-01
 
+} // namespace
+
 FUZZ_TARGET(versionbits, .init = initialize)
 {
     const CChainParams& params = *g_params;
@@ -362,4 +364,3 @@ FUZZ_TARGET(versionbits, .init = initialize)
         assert(exp_since > 0 || exp_state == ThresholdState::DEFINED);
     }
 }
-} // namespace

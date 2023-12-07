@@ -29,6 +29,8 @@ void initialize_miner()
     }
 }
 
+} // namespace
+
 // Test that MiniMiner and BlockAssembler build the same block given the same transactions and constraints.
 FUZZ_TARGET(mini_miner_selection, .init = initialize_miner)
 {
@@ -114,4 +116,3 @@ FUZZ_TARGET(mini_miner_selection, .init = initialize_miner)
         assert(mock_template_txids.count(tx->GetHash()));
     }
 }
-} // namespace
