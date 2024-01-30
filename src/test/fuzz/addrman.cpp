@@ -27,13 +27,13 @@
 
 namespace {
 const BasicTestingSetup* g_setup;
-} // namespace
 
 void initialize_addrman()
 {
     static const auto testing_setup = MakeNoLogFileContext<>(ChainType::REGTEST);
     g_setup = testing_setup.get();
 }
+} // namespace
 
 FUZZ_TARGET(addrman, .init = initialize_addrman)
 {

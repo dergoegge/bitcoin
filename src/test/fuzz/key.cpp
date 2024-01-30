@@ -30,10 +30,12 @@
 #include <string>
 #include <vector>
 
+namespace {
 void initialize_key()
 {
     ECC_Start();
     SelectParams(ChainType::REGTEST);
+}
 }
 
 FUZZ_TARGET(key, .init = initialize_key)

@@ -19,6 +19,8 @@ using Type = miniscript::Type;
 using MsCtx = miniscript::MiniscriptContext;
 using miniscript::operator"" _mst;
 
+namespace fuzz::util {
+
 //! Some pre-computed data for more efficient string roundtrips and to simulate challenges.
 struct TestData {
     typedef CPubKey Key;
@@ -1189,5 +1191,7 @@ void TestNode(const MsCtx script_ctx, const NodeRef& node, FuzzedDataProvider& p
     });
     assert(mal_success == satisfiable);
 }
+
+} // namespace fuzz::util
 
 #endif

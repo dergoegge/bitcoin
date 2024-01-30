@@ -14,6 +14,7 @@
 //! The converter of mocked descriptors, needs to be initialized when the target is.
 MockedDescriptorConverter MOCKED_DESC_CONVERTER;
 
+namespace {
 void initialize_descriptor_parse()
 {
     ECC_Start();
@@ -24,6 +25,7 @@ void initialize_mocked_descriptor_parse()
 {
     initialize_descriptor_parse();
     MOCKED_DESC_CONVERTER.Init();
+}
 }
 
 FUZZ_TARGET(mocked_descriptor_parse, .init = initialize_mocked_descriptor_parse)

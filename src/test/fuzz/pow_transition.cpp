@@ -18,9 +18,11 @@
 #include <string>
 #include <vector>
 
+namespace {
 void initialize_pow()
 {
     SelectParams(ChainType::MAIN);
+}
 }
 
 FUZZ_TARGET(pow_transition, .init = initialize_pow)

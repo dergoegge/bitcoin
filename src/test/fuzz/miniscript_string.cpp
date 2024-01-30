@@ -14,11 +14,15 @@
 #include <test/fuzz/util/miniscript.h>
 #include <util/strencodings.h>
 
+using namespace fuzz::util;
+
+namespace {
 void FuzzInit()
 {
     ECC_Start();
     TEST_DATA.Init();
 }
+} // namespace
 
 /* Fuzz tests that test parsing from a string, and roundtripping via string. */
 FUZZ_TARGET(miniscript_string, .init = FuzzInit)

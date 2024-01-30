@@ -14,6 +14,8 @@
 #include <test/fuzz/util/miniscript.h>
 #include <util/strencodings.h>
 
+using namespace fuzz::util;
+
 /* Fuzz tests that test parsing from a script, and roundtripping via script. */
 FUZZ_TARGET(miniscript_script)
 {

@@ -14,6 +14,9 @@
 #include <test/fuzz/util/miniscript.h>
 #include <util/strencodings.h>
 
+using namespace fuzz::util;
+
+namespace {
 void FuzzInit()
 {
     ECC_Start();
@@ -25,6 +28,7 @@ void FuzzInitSmart()
     FuzzInit();
     SMARTINFO.Init();
 }
+} // namespace
 
 /** Fuzz target that runs TestNode on nodes generated using ConsumeNodeSmart. */
 FUZZ_TARGET(miniscript_smart, .init = FuzzInitSmart)
