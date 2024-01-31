@@ -22,7 +22,7 @@ using miniscript::operator"" _mst;
 namespace fuzz::util {
 
 //! Some pre-computed data for more efficient string roundtrips and to simulate challenges.
-struct TestData {
+static struct TestData {
     typedef CPubKey Key;
 
     // Precomputed public keys, and a dummy signature for each of them.
@@ -312,7 +312,7 @@ const CScript DUMMY_SCRIPTSIG;
 const std::vector<unsigned char> NUMS_PK{ParseHex("50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0")};
 
 //! Construct a miniscript node as a shared_ptr.
-template<typename... Args> NodeRef MakeNodeRef(Args&&... args) {
+template<typename... Args> static NodeRef MakeNodeRef(Args&&... args) {
     return miniscript::MakeNodeRef<CPubKey>(miniscript::internal::NoDupCheck{}, std::forward<Args>(args)...);
 }
 
@@ -340,32 +340,32 @@ struct NodeInfo {
 
 /** Pick an index in a collection from a single byte in the fuzzer's output. */
 template<typename T, typename A>
-T ConsumeIndex(FuzzedDataProvider& provider, A& col) {
+static T ConsumeIndex(FuzzedDataProvider& provider, A& col) {
     const uint8_t i = provider.ConsumeIntegral<uint8_t>();
     return col[i];
 }
 
-CPubKey ConsumePubKey(FuzzedDataProvider& provider) {
+static CPubKey ConsumePubKey(FuzzedDataProvider& provider) {
     return ConsumeIndex<CPubKey>(provider, TEST_DATA.dummy_keys);
 }
 
-std::vector<unsigned char> ConsumeSha256(FuzzedDataProvider& provider) {
+static std::vector<unsigned char> ConsumeSha256(FuzzedDataProvider& provider) {
     return ConsumeIndex<std::vector<unsigned char>>(provider, TEST_DATA.sha256);
 }
 
-std::vector<unsigned char> ConsumeHash256(FuzzedDataProvider& provider) {
+static std::vector<unsigned char> ConsumeHash256(FuzzedDataProvider& provider) {
     return ConsumeIndex<std::vector<unsigned char>>(provider, TEST_DATA.hash256);
 }
 
-std::vector<unsigned char> ConsumeRipemd160(FuzzedDataProvider& provider) {
+static std::vector<unsigned char> ConsumeRipemd160(FuzzedDataProvider& provider) {
     return ConsumeIndex<std::vector<unsigned char>>(provider, TEST_DATA.ripemd160);
 }
 
-std::vector<unsigned char> ConsumeHash160(FuzzedDataProvider& provider) {
+static std::vector<unsigned char> ConsumeHash160(FuzzedDataProvider& provider) {
     return ConsumeIndex<std::vector<unsigned char>>(provider, TEST_DATA.hash160);
 }
 
-std::optional<uint32_t> ConsumeTimeLock(FuzzedDataProvider& provider) {
+static std::optional<uint32_t> ConsumeTimeLock(FuzzedDataProvider& provider) {
     const uint32_t k = provider.ConsumeIntegral<uint32_t>();
     if (k == 0 || k >= 0x80000000) return {};
     return k;
@@ -385,7 +385,7 @@ std::optional<uint32_t> ConsumeTimeLock(FuzzedDataProvider& provider) {
  *    - For multi_a(), same as for multi() but the threshold and the keys count are encoded on two bytes.
  *    - For thresh(), the next byte defines the threshold value and the following one the number of subs.
  */
-std::optional<NodeInfo> ConsumeNodeStable(MsCtx script_ctx, FuzzedDataProvider& provider, Type type_needed) {
+static std::optional<NodeInfo> ConsumeNodeStable(MsCtx script_ctx, FuzzedDataProvider& provider, Type type_needed) {
     bool allow_B = (type_needed == ""_mst) || (type_needed << "B"_mst);
     bool allow_K = (type_needed == ""_mst) || (type_needed << "K"_mst);
     bool allow_V = (type_needed == ""_mst) || (type_needed << "V"_mst);
@@ -512,7 +512,7 @@ std::optional<NodeInfo> ConsumeNodeStable(MsCtx script_ctx, FuzzedDataProvider& 
  * might construct a "Bondu" sha256() NodeInfo, but cannot construct a "Bz" older().
  * Each recipe is a Fragment together with a list of required types for its subnodes.
  */
-struct SmartInfo
+static struct SmartInfo
 {
     using recipe = std::pair<Fragment, std::vector<Type>>;
     std::map<Type, std::vector<recipe>> wsh_table, tap_table;
@@ -769,7 +769,7 @@ struct SmartInfo
  * (as improvements to the tables or changes to the typing rules could invalidate
  * everything).
  */
-std::optional<NodeInfo> ConsumeNodeSmart(MsCtx script_ctx, FuzzedDataProvider& provider, Type type_needed) {
+static std::optional<NodeInfo> ConsumeNodeSmart(MsCtx script_ctx, FuzzedDataProvider& provider, Type type_needed) {
     /** Table entry for the requested type. */
     const auto& table{IsTapscript(script_ctx) ? SMARTINFO.tap_table : SMARTINFO.wsh_table};
     auto recipes_it = table.find(type_needed);
@@ -852,7 +852,7 @@ std::optional<NodeInfo> ConsumeNodeSmart(MsCtx script_ctx, FuzzedDataProvider& p
  *   a NodeRef whose Type() matches the type fed to ConsumeNode.
  */
 template<typename F>
-NodeRef GenNode(MsCtx script_ctx, F ConsumeNode, Type root_type, bool strict_valid = false) {
+static NodeRef GenNode(MsCtx script_ctx, F ConsumeNode, Type root_type, bool strict_valid = false) {
     /** A stack of miniscript Nodes being built up. */
     std::vector<NodeRef> stack;
     /** The queue of instructions. */
@@ -1007,7 +1007,7 @@ NodeRef GenNode(MsCtx script_ctx, F ConsumeNode, Type root_type, bool strict_val
 }
 
 //! The spk for this script under the given context. If it's a Taproot output also record the spend data.
-CScript ScriptPubKey(MsCtx ctx, const CScript& script, TaprootBuilder& builder)
+static CScript ScriptPubKey(MsCtx ctx, const CScript& script, TaprootBuilder& builder)
 {
     if (!miniscript::IsTapscript(ctx)) return CScript() << OP_0 << WitnessV0ScriptHash(script);
 
@@ -1018,7 +1018,7 @@ CScript ScriptPubKey(MsCtx ctx, const CScript& script, TaprootBuilder& builder)
 }
 
 //! Fill the witness with the data additional to the script satisfaction.
-void SatisfactionToWitness(MsCtx ctx, CScriptWitness& witness, const CScript& script, TaprootBuilder& builder) {
+static void SatisfactionToWitness(MsCtx ctx, CScriptWitness& witness, const CScript& script, TaprootBuilder& builder) {
     // For P2WSH, it's only the witness script.
     witness.stack.emplace_back(script.begin(), script.end());
     if (!miniscript::IsTapscript(ctx)) return;
@@ -1027,7 +1027,7 @@ void SatisfactionToWitness(MsCtx ctx, CScriptWitness& witness, const CScript& sc
 }
 
 /** Perform various applicable tests on a miniscript Node. */
-void TestNode(const MsCtx script_ctx, const NodeRef& node, FuzzedDataProvider& provider)
+static void TestNode(const MsCtx script_ctx, const NodeRef& node, FuzzedDataProvider& provider)
 {
     if (!node) return;
 

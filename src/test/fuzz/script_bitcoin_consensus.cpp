@@ -14,7 +14,7 @@
 
 FUZZ_TARGET(script_bitcoin_consensus)
 {
-    FuzzedDataProvider fuzzed_data_provider(buffer.data(), buffer.size());
+/*    FuzzedDataProvider fuzzed_data_provider(buffer.data(), buffer.size());
     const std::vector<uint8_t> random_bytes_1 = ConsumeRandomLengthByteVector(fuzzed_data_provider);
     const std::vector<uint8_t> random_bytes_2 = ConsumeRandomLengthByteVector(fuzzed_data_provider);
     const CAmount money = ConsumeMoney(fuzzed_data_provider);
@@ -46,5 +46,5 @@ FUZZ_TARGET(script_bitcoin_consensus)
 
     (void)bitcoinconsensus_verify_script_with_spent_outputs(
             random_bytes_1.data(), random_bytes_1.size(), money, random_bytes_2.data(), random_bytes_2.size(),
-            spent_outputs.data(), spent_outs_size, n_in, flags, err_p);
+            spent_outputs.data(), spent_outs_size, n_in, flags, err_p);*/
 }

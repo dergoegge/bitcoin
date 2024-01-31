@@ -139,7 +139,7 @@ inline std::unique_ptr<CNode> ConsumeNodeAsUniquePtr(FuzzedDataProvider& fdp, co
 void FillNode(FuzzedDataProvider& fuzzed_data_provider, ConnmanTestMsg& connman, CNode& node) noexcept EXCLUSIVE_LOCKS_REQUIRED(NetEventsInterface::g_msgproc_mutex);
 
 template<typename R>
-void SimulationTest(Transport& initiator, Transport& responder, R& rng, FuzzedDataProvider& provider, const Span<std::string> messages)
+static void SimulationTest(Transport& initiator, Transport& responder, R& rng, FuzzedDataProvider& provider, const Span<std::string> messages)
 {
     // Simulation test with two Transport objects, which send messages to each other, with
     // sending and receiving fragmented into multiple pieces that may be interleaved. It primarily
@@ -366,13 +366,13 @@ void SimulationTest(Transport& initiator, Transport& responder, R& rng, FuzzedDa
     assert(transports[0]->GetInfo().session_id == transports[1]->GetInfo().session_id);
 }
 
-std::unique_ptr<Transport> MakeV1Transport(NodeId nodeid) noexcept
+static std::unique_ptr<Transport> MakeV1Transport(NodeId nodeid) noexcept
 {
     return std::make_unique<V1Transport>(nodeid);
 }
 
 template<typename RNG>
-std::unique_ptr<Transport> MakeV2Transport(NodeId nodeid, bool initiator, RNG& rng, FuzzedDataProvider& provider)
+static std::unique_ptr<Transport> MakeV2Transport(NodeId nodeid, bool initiator, RNG& rng, FuzzedDataProvider& provider)
 {
     // Retrieve key
     auto key = ConsumePrivateKey(provider);

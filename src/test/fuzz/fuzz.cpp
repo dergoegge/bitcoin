@@ -77,7 +77,9 @@ void FuzzFrameworkRegisterTarget(std::string_view name, TypeTestOneInput target,
 }
 
 static std::string_view g_fuzz_target;
-static const TypeTestOneInput* g_test_one_input{nullptr};
+static TypeTestOneInput g_test_one_input{nullptr};
+
+extern const std::function<std::string(const char*)> G_TRANSLATION_FUN = nullptr;
 
 void initialize()
 {
@@ -133,7 +135,7 @@ void initialize()
         std::exit(EXIT_FAILURE);
     }
     Assert(!g_test_one_input);
-    g_test_one_input = &it->second.test_one_input;
+    g_test_one_input = it->second.test_one_input;
     it->second.opts.init();
 }
 
@@ -181,7 +183,7 @@ void signal_handler(int signal)
 // This function is used by libFuzzer
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
-    static const auto& test_one_input = *Assert(g_test_one_input);
+    static const auto& test_one_input = Assert(g_test_one_input);
     test_one_input({data, size});
     return 0;
 }
@@ -198,7 +200,7 @@ extern "C" int LLVMFuzzerInitialize(int* argc, char*** argv)
 int main(int argc, char** argv)
 {
     initialize();
-    static const auto& test_one_input = *Assert(g_test_one_input);
+    static const auto& test_one_input = Assert(g_test_one_input);
 #ifdef __AFL_LOOP
     // Enable AFL persistent mode. Requires compilation using afl-clang-fast++.
     // See fuzzing.md for details.

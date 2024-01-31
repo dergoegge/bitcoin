@@ -39,7 +39,6 @@ void FuzzFrameworkRegisterTarget(std::string_view name, TypeTestOneInput target,
 
 // Not namespacing `fuzz_init` and `fuzz_test_one_input` with `name` acts as
 // the "only one harness per binary" linter.
-const std::function<std::string(const char*)> G_TRANSLATION_FUN = nullptr;
 void fuzz_init();
 void fuzz_test_one_input(FuzzBufferType buffer);
 #define DETAIL_FUZZ(name, ...)               \
