@@ -27,5 +27,10 @@ check_cxx_source_links_with_flags("${SANITIZER_LDFLAGS}" "
   " BINARY_LINKS_WITHOUT_MAIN_FUNCTION
 )
 if(NOT BINARY_LINKS_WITHOUT_MAIN_FUNCTION)
+  message("${SANITIZER_LDFLAGS} ${BINARY_LINKS_WITHOUT_MAIN_FUNCTION}")
   target_compile_definitions(test_fuzz PRIVATE PROVIDE_FUZZ_MAIN_FUNCTION)
+endif()
+
+if(BUILD_INDIVIDUAL_FUZZ_BINS)
+  target_compile_definitions(test_fuzz PRIVATE SINGLE_FUZZ_HARNESS)
 endif()

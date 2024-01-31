@@ -74,6 +74,11 @@ option(BUILD_TESTS "Build test_bitcoin executable." ON)
 option(BUILD_BENCH "Build bench_bitcoin executable." ON)
 cmake_dependent_option(BUILD_FUZZ_BINARY "Build fuzz binary." ON "NOT MSVC" OFF)
 cmake_dependent_option(FUZZ "Build for fuzzing. Enabling this will disable all other targets and override BUILD_FUZZ_BINARY." OFF "NOT MSVC" OFF)
+cmake_dependent_option(BUILD_INDIVIDUAL_FUZZ_BINS "Build individual binaries for each harness." OFF "NOT MSVC" OFF)
+
+if(BUILD_INDIVIDUAL_FUZZ_BINS)
+    set(FUZZ ON)
+endif()
 
 if(FUZZ)
   message(WARNING "FUZZ=ON will disable all other targets and force BUILD_FUZZ_BINARY=ON.")
