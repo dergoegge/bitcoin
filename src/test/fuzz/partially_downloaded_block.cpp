@@ -79,6 +79,7 @@ FUZZ_TARGET(partially_downloaded_block, .init = initialize_pdb)
         }
     }
 
+    extra_txn.emplace_back(uint256{}, nullptr);
     auto init_status{pdb.InitData(cmpctblock, extra_txn)};
 
     std::vector<CTransactionRef> missing;

@@ -18,7 +18,7 @@
 #include <unordered_map>
 
 CBlockHeaderAndShortTxIDs::CBlockHeaderAndShortTxIDs(const CBlock& block) :
-        nonce(GetRand<uint64_t>()),
+        nonce(0),
         shorttxids(block.vtx.size() - 1), prefilledtxn(1), header(block) {
     FillShortTxIDSelector();
     //TODO: Use our mempool prior to block acceptance to predictively fill more than just the coinbase
@@ -42,7 +42,7 @@ void CBlockHeaderAndShortTxIDs::FillShortTxIDSelector() const {
 
 uint64_t CBlockHeaderAndShortTxIDs::GetShortID(const uint256& txhash) const {
     static_assert(SHORTTXIDS_LENGTH == 6, "shorttxids calculation assumes 6-byte shorttxids");
-    return SipHashUint256(shorttxidk0, shorttxidk1, txhash) & 0xffffffffffffL;
+    return SipHashUint256(shorttxidk0, shorttxidk1, txhash) & 0xffL;
 }
 
 
