@@ -60,5 +60,7 @@ FUZZ_TARGET(signature_checker)
     if (!IsValidFlagCombination(flags)) {
         return;
     }
-    (void)VerifyScript(script_1, script_2, nullptr, flags, FuzzedSignatureChecker(fuzzed_data_provider), nullptr);
+    if (VerifyScript(script_1, script_2, nullptr, flags, FuzzedSignatureChecker(fuzzed_data_provider), nullptr)) {
+        CharaterizeOutput(std::vector<uint8_t>{0x1});
+    }
 }

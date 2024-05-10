@@ -10,6 +10,8 @@
 #include <span>
 #include <string_view>
 
+void CharaterizeOutput(Span<const uint8_t> output);
+
 /**
  * Can be used to limit a theoretically unbounded loop. This caps the runtime
  * to avoid timeouts or OOMs.
