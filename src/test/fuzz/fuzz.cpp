@@ -27,6 +27,7 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+#include <sys/shm.h>
 
 #if defined(PROVIDE_FUZZ_MAIN_FUNCTION) && defined(__AFL_FUZZ_INIT)
 __AFL_FUZZ_INIT();
@@ -53,6 +54,36 @@ static void SetArgs(int argc, char** argv) {
             g_args.push_back(argv[i]);
         }
     }
+}
+
+static Span<uint8_t> g_characterization_shmem{};
+static CSipHasher g_characterization_hasher{0, 0};
+
+void InitializeCharaterizationShMem()
+{
+    if (const char* shmem_id = std::getenv("SEMSAN_CHARACTERIZATION_SHMEM_ID")) {
+        void* shmem = Assert(shmat(*Assert(ToIntegral<int>(shmem_id)), nullptr, 0));
+        size_t size{32};
+        g_characterization_shmem = Span<uint8_t>{(uint8_t*)shmem, size};
+    }
+}
+
+void CharaterizeOutput(Span<const uint8_t> output)
+{
+    if (!g_characterization_shmem.data()) return;
+    g_characterization_hasher.Write(output);
+}
+
+void FinalizeCharaterization()
+{
+    if (!g_characterization_shmem.data()) return;
+
+    // Write the final charaterization hash to the charaterization shmem.
+    uint64_t hash{g_characterization_hasher.Finalize()};
+    auto bytes{AsBytes(Span<uint64_t>{&hash, 1})};
+    assert(bytes.size() <= g_characterization_shmem.size());
+    std::memcpy(g_characterization_shmem.data(), bytes.data(), bytes.size());
+    g_characterization_hasher = CSipHasher{0, 0};
 }
 
 const std::function<std::vector<const char*>()> G_TEST_COMMAND_LINE_ARGUMENTS = []() {
@@ -101,6 +132,8 @@ void ResetCoverageCounters() {}
 
 void initialize()
 {
+    InitializeCharaterizationShMem();
+
     // Terminate immediately if a fuzzing harness ever tries to create a socket.
     // Individual tests can override this by pointing CreateSock to a mocked alternative.
     CreateSock = [](int, int, int) -> std::unique_ptr<Sock> { std::terminate(); };
@@ -200,6 +233,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
     static const auto& test_one_input = *Assert(g_test_one_input);
     test_one_input({data, size});
+    FinalizeCharaterization();
     return 0;
 }
 
@@ -223,6 +257,7 @@ int main(int argc, char** argv)
     while (__AFL_LOOP(100000)) {
         size_t buffer_len = __AFL_FUZZ_TESTCASE_LEN;
         test_one_input({buffer, buffer_len});
+        FinalizeCharaterization();
     }
 #else
     std::vector<uint8_t> buffer;

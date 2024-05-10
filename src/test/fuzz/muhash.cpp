@@ -67,4 +67,7 @@ FUZZ_TARGET(muhash)
             out2 = uint256S(initial_state_hash);
         });
     assert(out == out2);
+
+    CharaterizeOutput(out);
+    CharaterizeOutput(out2);
 }
