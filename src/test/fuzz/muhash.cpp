@@ -12,6 +12,8 @@
 
 #include <array>
 #include <vector>
+#include <sys/shm.h>
+#include <unistd.h>
 
 namespace {
 
@@ -164,7 +166,18 @@ FUZZ_TARGET(num3072_inv)
     assert(uint == ONE);
 }
 
-FUZZ_TARGET(muhash)
+namespace {
+static uint8_t* muhash_charaterization_value = nullptr;
+void init_muhash()
+{
+    const char* shmid = getenv("DIFFERENTIAL_VALUE_SHMEM_ID");
+    if (shmid) {
+        muhash_charaterization_value = (uint8_t*)shmat(atoi(shmid), nullptr, 0);
+    }
+}
+} // namespace
+
+FUZZ_TARGET(muhash, .init = init_muhash)
 {
     FuzzedDataProvider fuzzed_data_provider{buffer.data(), buffer.size()};
     std::vector<uint8_t> data{ConsumeRandomLengthByteVector(fuzzed_data_provider)};
@@ -210,4 +223,7 @@ FUZZ_TARGET(muhash)
             out2 = uint256S(initial_state_hash);
         });
     assert(out == out2);
+    if (muhash_charaterization_value) {
+        std::memcpy(muhash_charaterization_value, out.data(), out.size());
+    }
 }
