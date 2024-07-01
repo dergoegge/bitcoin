@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <span>
+#include <span.h>
 #include <string_view>
 
 void CharaterizeOutput(Span<const uint8_t> output);
