@@ -55,6 +55,7 @@ struct TestOpts {
     bool block_tree_db_in_memory{true};
     bool setup_net{true};
     bool setup_validation_interface{true};
+    bool op_true_coinbases{false};
 };
 
 /** Basic testing setup.
@@ -131,10 +132,11 @@ struct TestChain100Setup : public TestingSetup {
     CBlock CreateBlock(
         const std::vector<CMutableTransaction>& txns,
         const CScript& scriptPubKey,
-        Chainstate& chainstate);
+        Chainstate& chainstate,
+        bool use_mempool = false);
 
     //! Mine a series of new blocks on the active chain.
-    void mineBlocks(int num_blocks);
+    void mineBlocks(int num_blocks, bool op_true_coinbases = false);
 
     /**
     * Create a transaction, optionally setting the fee based on the feerate.

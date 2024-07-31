@@ -42,6 +42,7 @@
 #include <streams.h>
 #include <test/util/net.h>
 #include <test/util/random.h>
+#include <test/util/script.h>
 #include <test/util/txmempool.h>
 #include <txdb.h>
 #include <txmempool.h>
@@ -354,9 +355,9 @@ TestChain100Setup::TestChain100Setup(
     coinbaseKey.Set(vchKey.begin(), vchKey.end(), true);
 
     // Generate a 100-block chain:
-    this->mineBlocks(COINBASE_MATURITY);
+    this->mineBlocks(COINBASE_MATURITY, opts.op_true_coinbases);
 
-    {
+    if (!opts.op_true_coinbases) {
         LOCK(::cs_main);
         assert(
             m_node.chainman->ActiveChain().Tip()->GetBlockHash().ToString() ==
@@ -364,9 +365,11 @@ TestChain100Setup::TestChain100Setup(
     }
 }
 
-void TestChain100Setup::mineBlocks(int num_blocks)
+void TestChain100Setup::mineBlocks(int num_blocks, bool op_true_coinbases)
 {
-    CScript scriptPubKey = CScript() << ToByteVector(coinbaseKey.GetPubKey()) << OP_CHECKSIG;
+    CScript scriptPubKey = op_true_coinbases ?
+                               P2WSH_OP_TRUE :
+                               CScript() << ToByteVector(coinbaseKey.GetPubKey()) << OP_CHECKSIG;
     for (int i = 0; i < num_blocks; i++) {
         std::vector<CMutableTransaction> noTxns;
         CBlock b = CreateAndProcessBlock(noTxns, scriptPubKey);
@@ -378,12 +381,13 @@ void TestChain100Setup::mineBlocks(int num_blocks)
 CBlock TestChain100Setup::CreateBlock(
     const std::vector<CMutableTransaction>& txns,
     const CScript& scriptPubKey,
-    Chainstate& chainstate)
+    Chainstate& chainstate,
+    bool use_mempool)
 {
     BlockAssembler::Options options;
-    CBlock block = BlockAssembler{chainstate, nullptr, options}.CreateNewBlock(scriptPubKey)->block;
+    CBlock block = BlockAssembler{chainstate, use_mempool ? Assert(m_node.mempool.get()) : nullptr, options}.CreateNewBlock(scriptPubKey)->block;
 
-    Assert(block.vtx.size() == 1);
+    Assert(use_mempool || block.vtx.size() == 1);
     for (const CMutableTransaction& tx : txns) {
         block.vtx.push_back(MakeTransactionRef(tx));
     }
