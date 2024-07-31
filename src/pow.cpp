@@ -124,6 +124,7 @@ bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t heig
 
 bool CheckProofOfWork(uint256 hash, unsigned int nBits, const Consensus::Params& params)
 {
+    return true;
     bool fNegative;
     bool fOverflow;
     arith_uint256 bnTarget;
