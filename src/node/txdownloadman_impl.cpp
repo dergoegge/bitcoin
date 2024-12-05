@@ -174,6 +174,16 @@ void TxDownloadManagerImpl::DisconnectedPeer(NodeId nodeid)
 
 bool TxDownloadManagerImpl::AddTxAnnouncement(NodeId peer, const GenTxid& gtxid, std::chrono::microseconds now, bool p2p_inv)
 {
+    if (gtxid.IsWtxid()) {
+        auto wtxid = Wtxid::FromUint256(gtxid.GetHash());
+        if (auto maybe_txids = m_orphanage.GetParentTxids(wtxid); maybe_txids.has_value()) {
+            // Request parents from this peer as well.
+            for (const auto& parent_txid : *maybe_txids) {
+                AddTxAnnouncement(peer, GenTxid::Txid(parent_txid), now, p2p_inv);
+            }
+        }
+    }
+
     // If this is an inv received from a peer and we already have it, we can drop it.
     // If this is a request for the parent of an orphan, we don't drop transactions that we already have. In particular,
     // we *do* want to request parents that are in m_lazy_recent_rejects_reconsiderable, since they can be CPFP'd.
@@ -369,6 +379,17 @@ node::RejectedTxTodo TxDownloadManagerImpl::MempoolRejectedTx(const CTransaction
                 // Potentially flip add_extra_compact_tx to false if AddTx returns false because the tx was already there
                 add_extra_compact_tx &= m_orphanage.AddTx(ptx, nodeid, unique_parents);
 
+                // Mark parents as announced by all previous announcers of this orphan.
+                auto gtxid{GenTxid::Wtxid(ptx->GetWitnessHash().ToUint256())};
+                for (auto& past_announcer : m_txrequest.GetCandidatePeers(ptx->GetWitnessHash())) {
+                    m_orphanage.AddTx(ptx, past_announcer, unique_parents);
+                    AddTxAnnouncement(past_announcer, gtxid, current_time, /*p2p_inv=*/false);
+                }
+                for (auto& past_announcer : m_txrequest.GetCandidatePeers(ptx->GetHash())) {
+                    m_orphanage.AddTx(ptx, past_announcer, unique_parents);
+                    AddTxAnnouncement(past_announcer, gtxid, current_time, /*p2p_inv=*/false);
+                }
+
                 // Once added to the orphan pool, a tx is considered AlreadyHave, and we shouldn't request it anymore.
                 m_txrequest.ForgetTxHash(tx.GetHash());
                 m_txrequest.ForgetTxHash(tx.GetWitnessHash());
@@ -462,11 +483,19 @@ void TxDownloadManagerImpl::MempoolRejectedPackage(const Package& package)
 std::pair<bool, std::optional<PackageToValidate>> TxDownloadManagerImpl::ReceivedTx(NodeId nodeid, const CTransactionRef& ptx)
 {
     const uint256& txid = ptx->GetHash();
-    const uint256& wtxid = ptx->GetWitnessHash();
+    const Wtxid& wtxid = ptx->GetWitnessHash();
 
     // Mark that we have received a response
     m_txrequest.ReceivedResponse(nodeid, txid);
     if (ptx->HasWitness()) m_txrequest.ReceivedResponse(nodeid, wtxid);
+
+    if (const auto maybe_txids = m_orphanage.GetParentTxids(wtxid); maybe_txids.has_value()) {
+        // Request parents from this peer as well.
+        auto now = GetTime<std::chrono::microseconds>();
+        for (const auto& parent_txid : *maybe_txids) {
+            AddTxAnnouncement(nodeid, GenTxid::Txid(parent_txid), now, /*p2p_inv=*/true);
+        }
+    }
 
     // First check if we should drop this tx.
     // We do the AlreadyHaveTx() check using wtxid, rather than txid - in the
@@ -498,7 +527,7 @@ std::pair<bool, std::optional<PackageToValidate>> TxDownloadManagerImpl::Receive
         // peer simply for relaying a tx that our m_lazy_recent_rejects has caught,
         // regardless of false positives.
         return {false, std::nullopt};
-    } else if (RecentRejectsReconsiderableFilter().contains(wtxid)) {
+    } else if (RecentRejectsReconsiderableFilter().contains(wtxid.ToUint256())) {
         // When a transaction is already in m_lazy_recent_rejects_reconsiderable, we shouldn't submit
         // it by itself again. However, look for a matching child in the orphanage, as it is
         // possible that they succeed as a package.
