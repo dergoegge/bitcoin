@@ -16,7 +16,75 @@
 #include <utility>
 #include <vector>
 
+#include "btcser_mutator.h"
+
+// Global mutator instance
+static Mutator *g_mutator = nullptr;
+
+extern "C" size_t LLVMFuzzerCustomMutator(uint8_t *Data, size_t Size,
+                                          size_t MaxSize, unsigned int Seed) {
+  if (!g_mutator || Size == 0)
+    return 0;
+
+  // Get mutated data
+  MutatedBuffer mutated = g_mutator->mutate(Data, Size, Seed);
+  if (!mutated.buffer)
+    return 0;
+
+  // Copy result if it fits
+  size_t copy_size = std::min(MaxSize, (size_t)mutated.len);
+  std::memcpy(Data, mutated.buffer, copy_size);
+  return copy_size;
+}
+
+extern "C" size_t LLVMFuzzerCustomCrossOver(const uint8_t *Data1, size_t Size1,
+                                            const uint8_t *Data2, size_t Size2,
+                                            uint8_t *Out, size_t MaxOutSize,
+                                            unsigned int Seed) {
+  if (!g_mutator)
+    return 0;
+
+  // Perform cross-over
+  MutatedBuffer crossed =
+      g_mutator->cross_over(Data1, Size1, Data2, Size2, Seed);
+  if (!crossed.buffer)
+    return 0;
+
+  // Copy result if it fits
+  size_t copy_size = std::min(MaxOutSize, (size_t)crossed.len);
+  std::memcpy(Out, crossed.buffer, copy_size);
+  return copy_size;
+}
+
 namespace {
+
+void initialize()
+{
+  const char* descriptor = R"(
+        prevout {
+            u256, # prevout hash
+            u32   # prevout index
+        }
+
+        script { vec<u8> }
+        tx_out { i64, script }
+        tx_in { prevout, script, u32 }
+
+        wit_stack { vec<vec<u8>> }
+
+        tx {
+            u32,              # version
+            bytes<2>(0x0001), # segwit marker (0 non-witness vins, flag = 1)
+            u8(0x01), tx_in,  # one input
+            vec<tx_out>,      # outputs
+            wit_stack,        # witness stack (only one because we only have one input)
+            u32,              # locktime
+            u32, u32,         # verify and fuzzed flags
+            tx_out            # prevouts being spend (only one because we only have one input)
+        }
+    )";
+  g_mutator = new Mutator(descriptor, "tx");
+}
 
 inline uint64_t HashSig(Span<const unsigned char> sig)
 {
@@ -146,13 +214,13 @@ void CheckScriptFlags(FuzzBufferType buffer)
  * tighten the interpreter rules (i.e. they represent soft-forks).
  */
 
-FUZZ_TARGET(script_flags)
+FUZZ_TARGET(script_flags, .init = ::initialize)
 {
     CheckScriptFlags<TransactionSignatureChecker>(buffer);
 }
 
 // Signature validation is mocked out through FuzzedSignatureChecker
-FUZZ_TARGET(script_flags_mocked)
+FUZZ_TARGET(script_flags_mocked, .init = ::initialize)
 {
     CheckScriptFlags<FuzzedSignatureChecker>(buffer);
 }
