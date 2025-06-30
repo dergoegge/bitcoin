@@ -691,6 +691,8 @@ FastRandomContext::FastRandomContext(bool fDeterministic) noexcept : requires_se
     // Note that despite always initializing with ZERO_KEY, requires_seed is set to true if not
     // fDeterministic. That means the rng will be reinitialized with a secure random key upon first
     // use.
+
+    requires_seed = false;
 }
 
 void RandomInit()
