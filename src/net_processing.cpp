@@ -2266,7 +2266,10 @@ void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& 
             return;
         }
         if (!BlockRequestAllowed(pindex)) {
-            LogDebug(BCLog::NET, "%s: ignoring request from peer=%i for old block that isn't in the main chain\n", __func__, pfrom.GetId());
+            LogDebug(BCLog::NET, "got request from peer=%i for old block that isn't in the main chain; sending notfound\n", pfrom.GetId());
+
+            std::vector<CInv> notfound = {inv};
+            MakeAndPushMessage(pfrom, NetMsgType::NOTFOUND, notfound);
             return;
         }
         // disconnect node in case we have reached the outbound limit for serving historical blocks
