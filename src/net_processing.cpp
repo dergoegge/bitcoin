@@ -4929,15 +4929,24 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         std::vector<CInv> vInv;
         vRecv >> vInv;
         std::vector<uint256> tx_invs;
+        std::vector<uint256> block_invs;
         if (vInv.size() <= node::MAX_PEER_TX_ANNOUNCEMENTS + MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
             for (CInv &inv : vInv) {
                 if (inv.IsGenTxMsg()) {
                     tx_invs.emplace_back(inv.hash);
                 }
+                if (inv.IsMsgBlk() && inv.IsMsgWitnessBlk() && inv.IsMsgCmpctBlk()) {
+                    block_invs.emplace_back(inv.hash);
+                }
             }
         }
-        LOCK(m_tx_download_mutex);
-        m_txdownloadman.ReceivedNotFound(pfrom.GetId(), tx_invs);
+
+        WITH_LOCK(m_tx_download_mutex, m_txdownloadman.ReceivedNotFound(pfrom.GetId(), tx_invs));
+
+        LOCK(m_chainman.GetMutex());
+        for (const auto& hash : block_invs) {
+            RemoveBlockRequest(hash, pfrom.GetId());
+        }
         return;
     }
 
