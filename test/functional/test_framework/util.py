@@ -577,6 +577,66 @@ def get_datadir_path(dirname, n):
     return pathlib.Path(dirname) / f"node{n}"
 
 
+def write_container_config(config_path, *, chain, rpc_port, p2p_port, extra_config="", disable_autoconnect=True):
+    """Write bitcoin.conf for container mode where all nodes use the same ports."""
+    # Translate chain subdirectory name to config name
+    if chain == 'testnet3':
+        chain_name_conf_arg = 'testnet'
+        chain_name_conf_section = 'test'
+    else:
+        chain_name_conf_arg = chain
+        chain_name_conf_section = chain
+    with open(config_path, 'w', encoding='utf8') as f:
+        if chain_name_conf_arg:
+            f.write("{}=1\n".format(chain_name_conf_arg))
+        if chain_name_conf_section:
+            f.write("[{}]\n".format(chain_name_conf_section))
+        f.write("port=" + str(p2p_port) + "\n")
+        f.write("rpcport=" + str(rpc_port) + "\n")
+        # Bind to all interfaces so other containers can connect
+        f.write("bind=0.0.0.0\n")
+        f.write("rpcbind=0.0.0.0\n")
+        f.write("rpcallowip=0.0.0.0/0\n")
+        # Disable server-side timeouts to avoid intermittent issues
+        f.write("rpcservertimeout=99000\n")
+        f.write("rpcdoccheck=1\n")
+        f.write("rpcthreads=2\n")
+        f.write("fallbackfee=0.0002\n")
+        f.write("server=1\n")
+        f.write("keypool=1\n")
+        f.write("discover=0\n")
+        f.write("dnsseed=0\n")
+        f.write("fixedseeds=0\n")
+        f.write("listenonion=0\n")
+        f.write("peertimeout=999999999\n")
+        f.write("printtoconsole=0\n")
+        f.write("natpmp=0\n")
+        f.write("shrinkdebugfile=0\n")
+        f.write("unsafesqlitesync=1\n")
+        if disable_autoconnect:
+            f.write("connect=0\n")
+        f.write("maxconnections=94\n")
+        f.write("par=" + str(min(2, os.cpu_count())) + "\n")
+        f.write(extra_config)
+
+
+def initialize_container_datadir(dirname, n, chain, rpc_port, p2p_port, disable_autoconnect=True):
+    """Initialize a data directory for container mode with fixed ports."""
+    datadir = get_datadir_path(dirname, n)
+    if not os.path.isdir(datadir):
+        os.makedirs(datadir)
+    write_container_config(
+        os.path.join(datadir, "bitcoin.conf"),
+        chain=chain,
+        rpc_port=rpc_port,
+        p2p_port=p2p_port,
+        disable_autoconnect=disable_autoconnect
+    )
+    os.makedirs(os.path.join(datadir, 'stderr'), exist_ok=True)
+    os.makedirs(os.path.join(datadir, 'stdout'), exist_ok=True)
+    return datadir
+
+
 def get_temp_default_datadir(temp_dir: pathlib.Path) -> tuple[dict, pathlib.Path]:
     """Return os-specific environment variables that can be set to make the
     GetDefaultDataDir() function return a datadir path under the provided

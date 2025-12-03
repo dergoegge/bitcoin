@@ -91,11 +91,13 @@ class TestNode():
     To make things easier for the test writer, any unrecognised messages will
     be dispatched to the RPC connection."""
 
-    def __init__(self, i, datadir_path, *, chain, rpchost, timewait, timeout_factor, binaries, coverage_dir, cwd, extra_conf=None, extra_args=None, use_cli=False, start_perf=False, use_valgrind=False, version=None, v2transport=False, uses_wallet=False, ipcbind=False):
+    def __init__(self, i, datadir_path, *, chain, rpchost, timewait, timeout_factor, binaries, coverage_dir, cwd, extra_conf=None, extra_args=None, use_cli=False, start_perf=False, use_valgrind=False, version=None, v2transport=False, uses_wallet=False, ipcbind=False, p2p_host=None):
         """
         Kwargs:
             start_perf (bool): If True, begin profiling the node with `perf` as soon as
                 the node starts.
+            p2p_host (str): Host address for P2P connections. Defaults to '127.0.0.1'.
+                Used for container mode where nodes have different DNS names.
         """
 
         self.index = i
@@ -106,6 +108,7 @@ class TestNode():
         self.stderr_dir = self.datadir_path / "stderr"
         self.chain = chain
         self.rpchost = rpchost
+        self.p2p_host = p2p_host if p2p_host is not None else '127.0.0.1'
         self.rpc_timeout = timewait  # Already multiplied by timeout_factor
         self.timeout_factor = timeout_factor
         self.binaries = binaries
@@ -767,7 +770,7 @@ class TestNode():
         if 'dstport' not in kwargs:
             kwargs['dstport'] = p2p_port(self.index)
         if 'dstaddr' not in kwargs:
-            kwargs['dstaddr'] = '127.0.0.1'
+            kwargs['dstaddr'] = self.p2p_host
         if supports_v2_p2p is None:
             supports_v2_p2p = self.use_v2transport
 

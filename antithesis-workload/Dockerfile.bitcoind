@@ -1,0 +1,81 @@
+# Dockerfile for bitcoind container used in Antithesis testing
+#
+# Build args:
+#   OWNER: GitHub repository owner (default: bitcoin)
+#   REPO: GitHub repository name (default: bitcoin)
+#   BRANCH: Git branch to build from (default: master)
+#
+# Usage:
+#   docker build -f Dockerfile.bitcoind \
+#     --build-arg OWNER=bitcoin \
+#     --build-arg REPO=bitcoin \
+#     --build-arg BRANCH=master \
+#     -t bitcoin-test:latest .
+
+FROM debian:bookworm-slim AS builder
+
+ARG OWNER=bitcoin
+ARG REPO=bitcoin
+ARG BRANCH=master
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    autoconf \
+    automake \
+    bsdmainutils \
+    build-essential \
+    ca-certificates \
+    cmake \
+    git \
+    libevent-dev \
+    libboost-dev \
+    libsqlite3-dev \
+    libtool \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone repository
+WORKDIR /src
+RUN git clone --depth 1 --branch ${BRANCH} \
+    https://github.com/${OWNER}/${REPO}.git bitcoin
+
+# Build Bitcoin Core
+WORKDIR /src/bitcoin
+RUN cmake -B build \
+    -DBUILD_TESTS=OFF \
+    -DBUILD_BENCH=OFF \
+    -DBUILD_FUZZ_BINARY=OFF \
+    -DENABLE_WALLET=ON \
+    -DWITH_BDB=OFF \
+    -DWITH_SQLITE=ON \
+    -DWITH_ZMQ=OFF \
+    -DWITH_USDT=OFF \
+    -DENABLE_IPC=OFF \
+    && cmake --build build -j$(nproc) \
+    && cmake --install build --prefix /install
+
+# Runtime image
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+# libevent-core and libevent-pthreads are needed for bitcoind
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libevent-dev \
+    libboost-dev \
+    libsqlite3-dev \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy binaries from builder
+COPY --from=builder /install/bin/bitcoind /usr/local/bin/
+COPY --from=builder /install/bin/bitcoin-cli /usr/local/bin/
+
+# Create data directory
+RUN mkdir -p /data
+
+# Expose ports (P2P and RPC)
+EXPOSE 18444 18443
+
+# Default command: sleep to keep container running
+# The test harness will start bitcoind via docker exec
+CMD ["sleep", "infinity"]

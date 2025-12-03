@@ -25,6 +25,7 @@ from .authproxy import JSONRPCException
 from . import coverage
 from .p2p import NetworkThread
 from .test_node import TestNode
+from .container_node import ContainerNode
 from .util import (
     Binaries,
     MAX_NODES,
@@ -35,6 +36,7 @@ from .util import (
     find_vout_for_address,
     get_binary_paths,
     get_datadir_path,
+    initialize_container_datadir,
     initialize_datadir,
     p2p_port,
     wait_until_helper_internal,
@@ -200,6 +202,20 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                             help="Explicitly use v1 transport (can be used to overwrite global --v2transport option)")
         parser.add_argument("--test_methods", dest="test_methods", nargs='*',
                             help="Run specified test methods sequentially instead of the full test. Use only for methods that do not depend on any context set up in run_test or other methods.")
+        # Container mode options (for Antithesis integration)
+        parser.add_argument("--container-mode", dest="container_mode", default=False, action="store_true",
+                            help="Connect to pre-running containers instead of spawning processes")
+        parser.add_argument("--container-prefix", dest="container_prefix", default="node",
+                            help="Container name prefix (default: node, yields node0, node1, ...)")
+        parser.add_argument("--container-datadir", dest="container_datadir", default="/data",
+                            help="Base path for node data directories in shared volume")
+        parser.add_argument("--container-rpc-port", dest="container_rpc_port", type=int, default=18443,
+                            help="RPC port used by nodes inside containers (default: 18443)")
+        parser.add_argument("--container-p2p-port", dest="container_p2p_port", type=int, default=18444,
+                            help="P2P port used by nodes inside containers (default: 18444)")
+        parser.add_argument("--container-runtime", dest="container_runtime", default="docker",
+                            choices=["docker", "podman"],
+                            help="Container runtime to use (default: docker)")
 
         self.add_options(parser)
         # Running TestShell in a Jupyter notebook causes an additional -f argument
@@ -418,6 +434,11 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
 
         Should only be called once after the nodes have been specified in
         set_test_params()."""
+        # Container mode: create ContainerNode instances for pre-running containers
+        if self.options.container_mode:
+            self._add_container_nodes(num_nodes, extra_args)
+            return
+
         def bin_dir_from_version(version):
             if not version:
                 return None
@@ -504,6 +525,50 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                 # adjust conf for pre 17
                 test_node_i.replace_in_config([('[regtest]', '')])
 
+    def _add_container_nodes(self, num_nodes, extra_args=None):
+        """Create ContainerNode instances for pre-running containers.
+
+        Used in container mode (--container-mode) for Antithesis integration.
+        """
+        from pathlib import Path
+
+        if extra_args is None:
+            extra_args = [[]] * num_nodes
+
+        for i in range(num_nodes):
+            container_name = f"{self.options.container_prefix}{i}"
+
+            # Initialize data directory on shared volume with container-specific config
+            datadir = initialize_container_datadir(
+                self.options.container_datadir,
+                i,
+                self.chain,
+                rpc_port=self.options.container_rpc_port,
+                p2p_port=self.options.container_p2p_port,
+                disable_autoconnect=self.disable_autoconnect,
+            )
+
+            node = ContainerNode(
+                i,
+                datadir,
+                container_name=container_name,
+                rpc_host=container_name,  # DNS name resolves in container network
+                p2p_host=container_name,
+                rpc_port=self.options.container_rpc_port,
+                p2p_port=self.options.container_p2p_port,
+                chain=self.chain,
+                timewait=self.rpc_timeout,
+                timeout_factor=self.options.timeout_factor,
+                coverage_dir=self.options.coveragedir,
+                cwd=self.options.tmpdir,
+                extra_args=list(extra_args[i]) if i < len(extra_args) else [],
+                v2transport=self.options.v2transport,
+                uses_wallet=self.uses_wallet,
+                container_runtime=self.options.container_runtime,
+            )
+            self.nodes.append(node)
+            self.log.debug(f"Added container node {i}: {container_name}")
+
     def start_node(self, i, *args, **kwargs):
         """Start a bitcoind"""
 
@@ -568,7 +633,12 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         """
         from_connection = self.nodes[a]
         to_connection = self.nodes[b]
-        ip_port = "127.0.0.1:" + str(p2p_port(b))
+
+        # Container mode: use container's DNS name and P2P port
+        if hasattr(to_connection, 'container_name'):
+            ip_port = f"{to_connection.p2p_host}:{to_connection._p2p_port}"
+        else:
+            ip_port = "127.0.0.1:" + str(p2p_port(b))
 
         if peer_advertises_v2 is None:
             peer_advertises_v2 = from_connection.use_v2transport

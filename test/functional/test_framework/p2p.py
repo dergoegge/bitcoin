@@ -24,7 +24,9 @@ import asyncio
 from collections import defaultdict
 from io import BytesIO
 import logging
+import os
 import platform
+import socket
 import struct
 import sys
 import threading
@@ -484,7 +486,11 @@ class P2PInterface(P2PConnection):
         vt.strSubVer = P2P_SUBVERSION
         vt.relay = P2P_VERSION_RELAY
         vt.nServices = services
-        vt.addrTo.ip = self.dstaddr
+        # Resolve DNS name to IP address if needed (for container mode)
+        try:
+            vt.addrTo.ip = socket.gethostbyname(self.dstaddr)
+        except socket.gaierror:
+            vt.addrTo.ip = self.dstaddr  # Fall back to original if resolution fails
         vt.addrTo.port = self.dstport
         vt.addrFrom.ip = "0.0.0.0"
         vt.addrFrom.port = 0
@@ -756,13 +762,19 @@ class NetworkThread(threading.Thread):
     def listen(cls, p2p, callback, port=None, addr=None, idx=1):
         """ Ensure a listening server is running on the given port, and run the
         protocol specified by `p2p` on the next connection to it. Once ready
-        for connections, call `callback`."""
+        for connections, call `callback`.
+
+        In container mode, the P2P_LISTEN_ADDR environment variable can be set
+        to bind to all interfaces (0.0.0.0) so that container nodes can connect
+        back to the test harness.
+        """
 
         if port is None:
             assert 0 < idx <= MAX_NODES
             port = p2p_port(MAX_NODES - idx)
         if addr is None:
-            addr = '127.0.0.1'
+            # Allow override via environment variable for container mode
+            addr = os.getenv('P2P_LISTEN_ADDR', '127.0.0.1')
 
         def exception_handler(loop, context):
             if not p2p.reconnect:

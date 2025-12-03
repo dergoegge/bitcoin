@@ -1,0 +1,94 @@
+# Dockerfile for test harness container used in Antithesis testing
+#
+# This container runs the Python functional test framework and controls
+# the bitcoind nodes running in other containers via docker exec.
+#
+# Build args:
+#   OWNER: GitHub repository owner (default: bitcoin)
+#   REPO: GitHub repository name (default: bitcoin)
+#   BRANCH: Git branch to build from (default: master)
+#   TEST_NAME: Name of the functional test to run (required)
+#
+# Usage:
+#   docker build -f Dockerfile.tester \
+#     --build-arg OWNER=bitcoin \
+#     --build-arg REPO=bitcoin \
+#     --build-arg BRANCH=master \
+#     --build-arg TEST_NAME=example_test \
+#     -t bitcoin-tester:latest .
+
+FROM debian:bookworm-slim
+
+ARG OWNER=bitcoin
+ARG REPO=bitcoin
+ARG BRANCH=master
+ARG TEST_NAME
+
+# Validate TEST_NAME is provided
+RUN if [ -z "$TEST_NAME" ]; then \
+    echo "ERROR: TEST_NAME build argument is required"; \
+    exit 1; \
+    fi
+
+# Install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    docker.io \
+    git \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone repository to get test framework
+WORKDIR /src
+RUN echo "test1"
+RUN git clone --depth 1 --branch ${BRANCH} \
+    https://github.com/${OWNER}/${REPO}.git bitcoin
+
+WORKDIR /src/bitcoin
+
+# Create a minimal config.ini for the test framework
+# The binaries are not needed on the tester since bitcoind runs in containers
+RUN mkdir -p /src/bitcoin/build && \
+    echo "[environment]" > /src/bitcoin/build/config.ini && \
+    echo "BUILDDIR=/src/bitcoin/build" >> /src/bitcoin/build/config.ini && \
+    echo "SRCDIR=/src/bitcoin" >> /src/bitcoin/build/config.ini && \
+    echo "EXEEXT=" >> /src/bitcoin/build/config.ini && \
+    echo "CLIENT_BUGREPORT=https://github.com/bitcoin/bitcoin/issues" >> /src/bitcoin/build/config.ini && \
+    echo "" >> /src/bitcoin/build/config.ini && \
+    echo "[components]" >> /src/bitcoin/build/config.ini && \
+    echo "ENABLE_BITCOIND=true" >> /src/bitcoin/build/config.ini && \
+    echo "ENABLE_CLI=true" >> /src/bitcoin/build/config.ini && \
+    echo "ENABLE_WALLET=true" >> /src/bitcoin/build/config.ini && \
+    echo "ENABLE_WALLET_TOOL=false" >> /src/bitcoin/build/config.ini && \
+    echo "BUILD_BITCOIN_TX=false" >> /src/bitcoin/build/config.ini && \
+    echo "ENABLE_BITCOIN_UTIL=false" >> /src/bitcoin/build/config.ini && \
+    echo "ENABLE_BITCOIN_CHAINSTATE=false" >> /src/bitcoin/build/config.ini && \
+    echo "ENABLE_ZMQ=false" >> /src/bitcoin/build/config.ini && \
+    echo "ENABLE_USDT_TRACEPOINTS=false" >> /src/bitcoin/build/config.ini && \
+    echo "ENABLE_EXTERNAL_SIGNER=false" >> /src/bitcoin/build/config.ini && \
+    echo "ENABLE_IPC=false" >> /src/bitcoin/build/config.ini
+
+# Create stub binaries directory (not actually needed in container mode)
+RUN mkdir -p /src/bitcoin/build/bin
+
+# Create shared data directory
+RUN mkdir -p /data
+
+# Store test name for runtime
+ENV TEST_NAME=${TEST_NAME}
+
+# Environment for container mode
+ENV P2P_LISTEN_ADDR=0.0.0.0
+
+# Default command: run the specified test in container mode
+# Don't specify --tmpdir so the framework creates a unique temp directory
+CMD ["sh", "-c", "python3 /src/bitcoin/test/functional/${TEST_NAME}.py \
+    --container-mode \
+    --container-prefix=node \
+    --container-datadir=/data \
+    --container-rpc-port=18443 \
+    --container-p2p-port=18444 \
+    --container-runtime=docker \
+    --configfile=/src/bitcoin/build/config.ini \
+    --loglevel=DEBUG"]
