@@ -206,12 +206,12 @@ void MiniMiner::DeleteAncestorPackage(const std::set<MockEntryMap::iterator, Ite
         m_total_fees += anc->second.GetModifiedFee();
         m_total_vsize += anc->second.GetTxSize();
         auto it = m_descendant_set_by_txid.find(anc->first);
-        // Each entry’s descendant set includes itself
+        // Each entry's descendant set includes itself
         Assume(it != m_descendant_set_by_txid.end());
         for (auto& descendant : it->second) {
             // If these fail, we must be double-deducting.
-            Assume(descendant->second.GetModFeesWithAncestors() >= anc->second.GetModifiedFee());
-            Assume(descendant->second.GetSizeWithAncestors() >= anc->second.GetTxSize());
+            Assert(descendant->second.GetModFeesWithAncestors() >= anc->second.GetModifiedFee());
+            Assert(descendant->second.GetSizeWithAncestors() >= anc->second.GetTxSize());
             descendant->second.UpdateAncestorState(-anc->second.GetTxSize(), -anc->second.GetModifiedFee());
         }
     }
@@ -235,7 +235,7 @@ void MiniMiner::SanityCheck() const
     Assume(m_entries.size() == m_entries_by_txid.size());
     Assume(m_entries.size() == m_descendant_set_by_txid.size());
     // Cached ancestor values should be at least as large as the transaction's own fee and size
-    Assume(std::all_of(m_entries.begin(), m_entries.end(), [](const auto& entry) {
+    Assert(std::all_of(m_entries.begin(), m_entries.end(), [](const auto& entry) {
         return entry->second.GetSizeWithAncestors() >= entry->second.GetTxSize() &&
                entry->second.GetModFeesWithAncestors() >= entry->second.GetModifiedFee();}));
     // None of the entries should be to-be-replaced transactions
