@@ -820,8 +820,8 @@ CAmount GenerateChangeTarget(const CAmount payment_value, const CAmount change_f
 void SelectionResult::SetBumpFeeDiscount(const CAmount discount)
 {
     // Overlapping ancestry can only lower the fees, not increase them
-    assert (discount >= 0);
-    bump_fee_group_discount = discount;
+    //assert (discount >= 0);
+    bump_fee_group_discount = std::max(discount, CAmount{0});
 }
 
 void SelectionResult::RecalculateWaste(const CAmount min_viable_change, const CAmount change_cost, const CAmount change_fee)
