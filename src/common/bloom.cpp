@@ -48,8 +48,6 @@ inline unsigned int CBloomFilter::Hash(unsigned int nHashNum, std::span<const un
 
 void CBloomFilter::insert(std::span<const unsigned char> vKey)
 {
-    if (vData.empty()) // Avoid divide-by-zero (CVE-2013-5700)
-        return;
     for (unsigned int i = 0; i < nHashFuncs; i++)
     {
         unsigned int nIndex = Hash(i, vKey);
@@ -67,8 +65,6 @@ void CBloomFilter::insert(const COutPoint& outpoint)
 
 bool CBloomFilter::contains(std::span<const unsigned char> vKey) const
 {
-    if (vData.empty()) // Avoid divide-by-zero (CVE-2013-5700)
-        return true;
     for (unsigned int i = 0; i < nHashFuncs; i++)
     {
         unsigned int nIndex = Hash(i, vKey);
