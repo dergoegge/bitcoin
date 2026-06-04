@@ -1222,7 +1222,13 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransactionRef& ptx, const SyncTxS
         }
 
         bool fExisted = mapWallet.contains(tx.GetHash());
-        if (fExisted || IsMine(tx) || IsFromMe(tx))
+        // STRESS-TEST PATCH (universal-wallet): still evaluate the normal relevance
+        // checks so IsMine()/IsFromMe() are exercised, but store every transaction the
+        // node sees regardless of the result. This drives all node-visible txs through
+        // the tracking/storage code paths (AddToWallet, mapTxSpends, MarkConflicted, DB
+        // writes). Balances stay ~0 since foreign outputs are not actually ours.
+        const bool involves_me = fExisted || IsMine(tx) || IsFromMe(tx);
+        if (true || involves_me)
         {
             /* Check if any keys in the wallet keypool that were supposed to be unused
              * have appeared in a new transaction. If so, remove those keys from the keypool.
@@ -1551,7 +1557,9 @@ void CWallet::blockConnected(const ChainstateRole& role, const interfaces::Block
 
     // No need to scan block if it was created before the wallet birthday.
     // Uses chain max time and twice the grace period to adjust time for block time variability.
-    if (block.chain_time_max < m_birth_time.load() - (TIMESTAMP_WINDOW * 2)) return;
+    // STRESS-TEST PATCH (universal-wallet): birthday gate disabled so every connected
+    // block (including pre-birthday/historical ones) is scanned through SyncTransaction.
+    // if (block.chain_time_max < m_birth_time.load() - (TIMESTAMP_WINDOW * 2)) return;
 
     // Scan block
     bool wallet_updated = false;
