@@ -244,7 +244,9 @@ void DoCheck(std::string prv, std::string pub, const std::string& norm_pub, int 
             BOOST_CHECK_MESSAGE(EqualDescriptor(prv, prv1), "Private ser: " + prv1 + " Private desc: " + prv);
         }
         BOOST_CHECK(!parse_priv->HavePrivateKeys(keys_pub));
-        BOOST_CHECK(parse_pub->HavePrivateKeys(keys_priv));
+        if (!(flags & MUSIG)) {
+            BOOST_CHECK(parse_pub->HavePrivateKeys(keys_priv));
+        }
 
         BOOST_CHECK(!parse_priv->ToPrivateString(keys_pub, prv1));
         BOOST_CHECK(parse_pub->ToPrivateString(keys_priv, prv1));
@@ -1341,6 +1343,20 @@ BOOST_AUTO_TEST_CASE(descriptor_older_warnings)
         BOOST_REQUIRE_MESSAGE(!descs.empty(), err);
         BOOST_CHECK(descs[0]->Warnings().empty());
     }
+}
+
+BOOST_AUTO_TEST_CASE(descriptor_musig_have_private_keys)
+{
+    FlatSigningProvider partial_keys;
+    std::string err;
+    auto partial = Parse("rawtr(musig(KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgd9M7rFU74sHUHy8S,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659))", partial_keys, err, /*require_checksum=*/false);
+    BOOST_REQUIRE_MESSAGE(!partial.empty(), err);
+    BOOST_CHECK(!partial[0]->HavePrivateKeys(partial_keys));
+
+    FlatSigningProvider full_keys;
+    auto full = Parse("rawtr(musig(xprvA1RpRA33e1JQ7ifknakTFpgNXPmW2YvmhqLQYMmrj4xJXXWYpDPS3xz7iAxn8L39njGVyuoseXzU6rcxFLJ8HFsTjSyQbLYnMpCqE2VbFWc/1,xprvA1RpRA33e1JQ7ifknakTFpgNXPmW2YvmhqLQYMmrj4xJXXWYpDPS3xz7iAxn8L39njGVyuoseXzU6rcxFLJ8HFsTjSyQbLYnMpCqE2VbFWc/2))", full_keys, err, /*require_checksum=*/false);
+    BOOST_REQUIRE_MESSAGE(!full.empty(), err);
+    BOOST_CHECK(full[0]->HavePrivateKeys(full_keys));
 }
 
 void CheckSingleUnparsable(const std::string& desc, const std::string& expected_error)
