@@ -220,6 +220,31 @@ BOOST_AUTO_TEST_CASE(bnb_test)
     }
 }
 
+BOOST_AUTO_TEST_CASE(bnb_exhaustion_with_solution_test)
+{
+    std::vector<OutputGroup> utxo_pool;
+
+    CAmount selection_target{0};
+    const size_t pairs{17};
+    for (size_t i = 0; i < pairs; ++i) {
+        const CAmount base{CAmount{1} << (pairs + i)};
+        selection_target += base;
+        utxo_pool.push_back(MakeCoin(base, /*is_eff_value=*/true, default_cs_params));
+        utxo_pool.push_back(MakeCoin(base + (CAmount{1} << (pairs - 1 - i)), /*is_eff_value=*/true, default_cs_params));
+    }
+
+    // Add an exact-match solution that is found immediately. BnB must still report that the algorithm did not
+    // complete once the remaining hard case pushes the search into the attempt limit.
+    AddCoins(utxo_pool, {selection_target}, default_cs_params);
+
+    const auto result{SelectCoinsBnB(utxo_pool, selection_target, /*cost_of_change=*/0, MAX_STANDARD_TX_WEIGHT)};
+    BOOST_CHECK_MESSAGE(result, "Falsy result in BnB-Success: Exhaust with early solution");
+    BOOST_CHECK_EQUAL(result->GetSelectedEffectiveValue(), selection_target);
+    BOOST_CHECK_EQUAL(result->GetInputSet().size(), 1U);
+    BOOST_CHECK_EQUAL(result->GetSelectionsEvaluated(), 100'000U);
+    BOOST_CHECK(!result->GetAlgoCompleted());
+}
+
 BOOST_AUTO_TEST_CASE(bnb_feerate_sensitivity_test)
 {
     // Create sets of UTXOs with the same effective amounts at different feerates (but different absolute amounts)
