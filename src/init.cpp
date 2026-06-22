@@ -688,6 +688,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
                    ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-printpriority", strprintf("Log transaction fee rate in %s/kvB when mining blocks (default: %u)", CURRENCY_UNIT, DEFAULT_PRINT_MODIFIED_FEE), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-uacomment=<cmt>", "Append comment to the user agent string", ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-adversarial", strprintf("Enable adversarial RPC commands (the \"adv_*\" namespace) that let this node act as a programmable network adversary against its peers: open arbitrary connections, send raw/malformed p2p messages and construct adversarial blocks. Intended for full-system / antithesis testing only. WARNING: a node started with this flag can attack the network it is connected to; never enable it on a node reachable from mainnet peers. (default: %u)", DEFAULT_ADVERSARIAL), ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
 
     SetupChainParamsBaseOptions(argsman);
 
@@ -1531,6 +1532,10 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
      * available in the GUI RPC console even if external calls are disabled.
      */
     RegisterAllCoreRPCCommands(tableRPC);
+    if (args.GetBoolArg("-adversarial", DEFAULT_ADVERSARIAL)) {
+        LogWarning("-adversarial is set. The adv_* RPC namespace is enabled, allowing this node to act as a network adversary. Do not use on a node connected to mainnet peers.\n");
+        RegisterAdversarialRPCCommands(tableRPC);
+    }
     for (const auto& client : node.chain_clients) {
         client->registerRpcs();
     }

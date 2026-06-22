@@ -966,6 +966,10 @@ RPCMethod walletprocesspsbt();
 RPCMethod walletcreatefundedpsbt();
 RPCMethod signrawtransactionwithwallet();
 
+// adversarial (chaoswallet)
+RPCMethod adv_chaoswallet_setup();
+RPCMethod adv_createchaostx();
+
 // signmessage
 RPCMethod signmessage();
 
@@ -983,6 +987,8 @@ std::span<const CRPCCommand> GetWalletRPCCommands()
 {
     static const CRPCCommand commands[]{
         {"rawtransactions", &fundrawtransaction},
+        {"adversarial", &adv_chaoswallet_setup},
+        {"adversarial", &adv_createchaostx},
         {"wallet", &abandontransaction},
         {"wallet", &abortrescan},
         {"wallet", &addhdkey},

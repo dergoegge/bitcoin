@@ -362,6 +362,7 @@ BASE_SCRIPTS = [
     'interface_ipc.py',
     'interface_ipc_mining.py',
     'feature_anchors.py',
+    'feature_adversarial.py',
     'mempool_datacarrier.py',
     'feature_coinstatsindex.py',
     'feature_coinstatsindex_compatibility.py',

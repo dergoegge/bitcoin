@@ -95,6 +95,11 @@ public:
         uint32_t max_headers_result{MAX_HEADERS_RESULTS};
         //! Whether private broadcast is used for sending transactions.
         bool private_broadcast{DEFAULT_PRIVATE_BROADCAST};
+        //! Whether adversarial mode is enabled (-adversarial). When set, the node
+        //! autonomously mutates outbound BIP152 compact-block relay messages, drawing
+        //! every choice directly from /dev/urandom so an external fuzzer (e.g.
+        //! antithesis) drives them. Test-only; must never be set on mainnet nodes.
+        bool adversarial{false};
     };
 
     static std::unique_ptr<PeerManager> make(CConnman& connman, AddrMan& addrman,

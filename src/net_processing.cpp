@@ -13,6 +13,7 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <common/bloom.h>
+#include <common/urandom.h>
 #include <consensus/amount.h>
 #include <consensus/params.h>
 #include <consensus/validation.h>
@@ -201,6 +202,51 @@ static constexpr size_t NUM_PRIVATE_BROADCAST_PER_TX{3};
 static constexpr auto PRIVATE_BROADCAST_MAX_CONNECTION_LIFETIME{3min};
 
 // Internal stuff
+namespace {
+/**
+ * A `cmpctblock` whose prefilled-transaction set and short ids are chosen
+ * adversarially, with every choice read directly from /dev/urandom (so an
+ * external fuzzer such as antithesis drives the construction). Used only when
+ * the node is started with -adversarial. Mirrors fuzzamoto's BuildCompactBlock:
+ * a random subset of the block's transactions is prefilled and the remaining
+ * short ids are occasionally corrupted.
+ */
+class AdversarialCmpctBlock : public CBlockHeaderAndShortTxIDs
+{
+public:
+    AdversarialCmpctBlock(const CBlock& block, UrandomSource& rng)
+        : CBlockHeaderAndShortTxIDs(block, rng.rand64())
+    {
+        const size_t n{block.vtx.size()};
+        // Random prefill subset (random count, random members).
+        std::set<uint16_t> prefill;
+        const size_t num_prefill{static_cast<size_t>(rng.randrange(n + 1))};
+        for (size_t i = 0; i < num_prefill; ++i) {
+            prefill.insert(static_cast<uint16_t>(rng.randrange(n)));
+        }
+
+        // Rebuild the inherited vectors. GetShortID() uses the base hasher, which
+        // the base constructor already seeded from the (header, nonce) pair.
+        prefilledtxn.clear();
+        shorttxids.clear();
+        int32_t last{-1};
+        for (size_t i = 0; i < n; ++i) {
+            if (prefill.contains(static_cast<uint16_t>(i))) {
+                // PrefilledTransaction.index is a differential offset (see InitData).
+                prefilledtxn.push_back(PrefilledTransaction{static_cast<uint16_t>(static_cast<int32_t>(i) - last - 1), block.vtx[i]});
+                last = static_cast<int32_t>(i);
+            } else {
+                uint64_t id{GetShortID(block.vtx[i]->GetWitnessHash())};
+                // Occasionally corrupt a short id (keep it 6 bytes) so the peer is
+                // forced down the getblocktxn / reconstruction-failure paths.
+                if (rng.randrange(8) == 0) id ^= (rng.rand64() & 0xffffffffffffULL);
+                shorttxids.push_back(id);
+            }
+        }
+    }
+};
+} // namespace
+
 namespace {
 /** Blocks that are in flight, and that are in the queue to be downloaded. */
 struct QueuedBlock {
@@ -1582,6 +1628,13 @@ void PeerManagerImpl::PushNodeVersion(CNode& pnode, const Peer& peer)
         my_user_agent = strSubVersion;
         my_height = m_best_height;
         my_tx_relay = !RejectIncomingTxs(pnode);
+        if (m_opts.adversarial) {
+            // Adversarially randomize the advertised relay flag and starting height
+            // (fuzzamoto LoadHandshakeOpts: relay, starting_height 0..400). From /dev/urandom.
+            UrandomSource rng;
+            my_tx_relay = rng.randbool();
+            my_height = static_cast<int>(rng.randrange(400));
+        }
     }
 
     MakeAndPushMessage(
@@ -2131,7 +2184,13 @@ void PeerManagerImpl::BlockDisconnected(const std::shared_ptr<const CBlock> &blo
  */
 void PeerManagerImpl::NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock>& pblock)
 {
-    auto pcmpctblock = std::make_shared<const CBlockHeaderAndShortTxIDs>(*pblock, FastRandomContext().rand64());
+    std::shared_ptr<const CBlockHeaderAndShortTxIDs> pcmpctblock;
+    if (m_opts.adversarial) {
+        UrandomSource rng;
+        pcmpctblock = std::make_shared<const AdversarialCmpctBlock>(*pblock, rng);
+    } else {
+        pcmpctblock = std::make_shared<const CBlockHeaderAndShortTxIDs>(*pblock, FastRandomContext().rand64());
+    }
 
     LOCK(cs_main);
 
@@ -2496,6 +2555,10 @@ void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& 
             if (can_direct_fetch && pindex->nHeight >= tip->nHeight - MAX_CMPCTBLOCK_DEPTH) {
                 if (a_recent_compact_block && a_recent_compact_block->header.GetHash() == inv.hash) {
                     MakeAndPushMessage(pfrom, NetMsgType::CMPCTBLOCK, *a_recent_compact_block);
+                } else if (m_opts.adversarial) {
+                    UrandomSource rng;
+                    AdversarialCmpctBlock cmpctblock{*pblock, rng};
+                    MakeAndPushMessage(pfrom, NetMsgType::CMPCTBLOCK, static_cast<const CBlockHeaderAndShortTxIDs&>(cmpctblock));
                 } else {
                     CBlockHeaderAndShortTxIDs cmpctblock{*pblock, m_rng.rand64()};
                     MakeAndPushMessage(pfrom, NetMsgType::CMPCTBLOCK, cmpctblock);
@@ -2634,6 +2697,37 @@ void PeerManagerImpl::SendBlockTransactions(CNode& pfrom, Peer& peer, const CBlo
             return;
         }
         resp.txn[i] = block.vtx[req.indexes[i]];
+    }
+
+    if (m_opts.adversarial) {
+        // Adversarially mutate the blocktxn response so the requesting peer's
+        // reconstruction path is fuzzed. Every choice is read from /dev/urandom
+        // (fuzzer-controlled). Possible mutations: wrong blockhash, dropped txs,
+        // duplicated txs, txs replaced with a different block tx, and extra txs.
+        UrandomSource rng;
+        if (rng.randrange(16) == 0) {
+            resp.blockhash = rng.rand<uint256>();
+        }
+        for (auto& tx : resp.txn) {
+            switch (rng.randrange(8)) {
+            case 0: // replace with some other transaction from the block
+                tx = block.vtx[rng.randrange(block.vtx.size())];
+                break;
+            case 1: // duplicate the coinbase in this slot
+                tx = block.vtx[0];
+                break;
+            default:
+                break; // leave as requested (most of the time)
+            }
+        }
+        if (!resp.txn.empty() && rng.randrange(4) == 0) {
+            // Drop a random tx (truncate), producing a short response.
+            resp.txn.resize(rng.randrange(resp.txn.size()));
+        }
+        const size_t extra{static_cast<size_t>(rng.randrange(3))};
+        for (size_t i = 0; i < extra; ++i) {
+            resp.txn.push_back(block.vtx[rng.randrange(block.vtx.size())]);
+        }
     }
 
     if (util::log::ShouldDebugLog(BCLog::CMPCTBLOCK)) {
@@ -3738,12 +3832,16 @@ void PeerManagerImpl::ProcessMessage(Peer& peer, CNode& pfrom, const std::string
             return;
         }
 
-        if (greatest_common_version >= WTXID_RELAY_VERSION) {
+        // In adversarial mode, randomly omit individual feature announcements
+        // (fuzzamoto LoadHandshakeOpts: wtxidrelay, addrv2, erlay). From /dev/urandom.
+        const auto adv_omit = [&]() -> bool { return m_opts.adversarial && UrandomSource{}.randbool(); };
+
+        if (greatest_common_version >= WTXID_RELAY_VERSION && !adv_omit()) {
             MakeAndPushMessage(pfrom, NetMsgType::WTXIDRELAY);
         }
 
         // Signal ADDRv2 support (BIP155).
-        if (greatest_common_version >= 70016) {
+        if (greatest_common_version >= 70016 && !adv_omit()) {
             // BIP155 defines addrv2 and sendaddrv2 for all protocol versions, but some
             // implementations reject messages they don't know. As a courtesy, don't send
             // it to nodes with a version before 70016, as no software is known to support
@@ -3760,7 +3858,7 @@ void PeerManagerImpl::ProcessMessage(Peer& peer, CNode& pfrom, const std::string
             // - we are not in -blocksonly mode.
             const auto* tx_relay = peer.GetTxRelay();
             if (tx_relay && WITH_LOCK(tx_relay->m_bloom_filter_mutex, return tx_relay->m_relay_txs) &&
-                !pfrom.IsAddrFetchConn() && !m_opts.ignore_incoming_txs) {
+                !pfrom.IsAddrFetchConn() && !m_opts.ignore_incoming_txs && !adv_omit()) {
                 const uint64_t recon_salt = m_txreconciliation->PreRegisterPeer(pfrom.GetId());
                 MakeAndPushMessage(pfrom, NetMsgType::SENDTXRCNCL,
                                    TXRECONCILIATION_VERSION, recon_salt);
@@ -3903,7 +4001,15 @@ void PeerManagerImpl::ProcessMessage(Peer& peer, CNode& pfrom, const std::string
             // cmpctblock messages.
             // We send this to non-NODE NETWORK peers as well, because
             // they may wish to request compact blocks from us
-            MakeAndPushMessage(pfrom, NetMsgType::SENDCMPCT, /*high_bandwidth=*/false, /*version=*/CMPCTBLOCKS_VERSION);
+            if (m_opts.adversarial) {
+                // fuzzamoto send_compact: randomly omit, or announce hb=random.
+                UrandomSource rng;
+                if (rng.randrange(5) != 0) {
+                    MakeAndPushMessage(pfrom, NetMsgType::SENDCMPCT, /*high_bandwidth=*/rng.randbool(), /*version=*/CMPCTBLOCKS_VERSION);
+                }
+            } else {
+                MakeAndPushMessage(pfrom, NetMsgType::SENDCMPCT, /*high_bandwidth=*/false, /*version=*/CMPCTBLOCKS_VERSION);
+            }
         }
 
         if (m_txreconciliation) {

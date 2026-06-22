@@ -11,7 +11,12 @@
  * headers for everything under src/rpc/ */
 class CRPCTable;
 
+/** Default for -adversarial: the adversarial ("adv_*") RPC namespace is disabled. */
+static constexpr bool DEFAULT_ADVERSARIAL{false};
+
 void RegisterBlockchainRPCCommands(CRPCTable &tableRPC);
+/** Registered separately from RegisterAllCoreRPCCommands(), only when -adversarial is set. */
+void RegisterAdversarialRPCCommands(CRPCTable&);
 void RegisterFeeRPCCommands(CRPCTable&);
 void RegisterMempoolRPCCommands(CRPCTable&);
 void RegisterMiningRPCCommands(CRPCTable &tableRPC);
