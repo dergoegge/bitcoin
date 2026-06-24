@@ -47,6 +47,19 @@
 //! the sleep time needs to be small to avoid new sockets stalling.
 static constexpr auto SELECT_TIMEOUT{50ms};
 
+//! Test-only delay injected into HTTPRequest::WriteReply() between filling the
+//! send buffer and updating m_send_ready. It widens the window in which the I/O
+//! thread can drain the send buffer concurrently, deterministically exposing the
+//! optimistic-send race. Enabled via the hidden -rpcwritereplydelay arg.
+static std::chrono::milliseconds g_writereply_delay{0};
+
+//! Test-only cap (in bytes, 0 = unlimited) on how much data a single
+//! MaybeSendBytesFromBuffer() call may push to the socket. It forces a large
+//! reply to drain over multiple I/O loop iterations instead of in one Send(),
+//! which guarantees the next reply on the same connection observes a non-empty
+//! send buffer (the racy branch). Enabled via the hidden -rpcsendcap arg.
+static size_t g_send_cap{0};
+
 //! Explicit alias for setting socket option methods.
 static constexpr int SOCKET_OPTION_TRUE{1};
 
@@ -595,6 +608,16 @@ void HTTPRequest::WriteReply(HTTPStatusCode status, std::span<const std::byte> r
         // data. The original data will go out of scope when WriteReply() returns.
         // This is analogous to the memcpy() in libevent's evbuffer_add()
         m_client->m_send_buffer.insert(m_client->m_send_buffer.end(), reply_body.begin(), reply_body.end());
+
+        // If the buffer already held data, the I/O thread is (or soon will be)
+        // draining it, so flag that there is more data to send. This must happen
+        // while holding m_send_mutex and while the buffer is known non-empty:
+        // setting m_send_ready after releasing the lock would race with the I/O
+        // thread draining the buffer to empty and clearing m_send_ready in
+        // between, leaving m_send_ready set on an empty buffer. The I/O loop would
+        // then only ever poll the socket for writeability, never read the client's
+        // next request, and wedge the connection.
+        if (!send_buffer_was_empty) m_client->m_send_ready = true;
     }
 
     LogDebug(
@@ -612,9 +635,15 @@ void HTTPRequest::WriteReply(HTTPStatusCode status, std::span<const std::byte> r
     if (send_buffer_was_empty) {
         m_client->MaybeSendBytesFromBuffer();
     } else {
-        // Inform HTTPServer I/O that data is ready to be sent to this client
-        // in the next loop iteration.
-        m_client->m_send_ready = true;
+        // The send buffer already held data, so m_send_ready was set under
+        // m_send_mutex above and the I/O thread will flush this reply on a later
+        // loop iteration.
+        //
+        // Test-only: widen the window in which the I/O thread can drain the buffer
+        // to empty concurrently. With the fix this is harmless (m_send_ready is
+        // only ever cleared, not re-set, once the buffer empties); it is what
+        // deterministically exposed the optimistic-send race before the fix.
+        if (g_writereply_delay > 0ms) UninterruptibleSleep(g_writereply_delay);
     }
 
     // Signal to the I/O loop that we are ready to handle the next request.
@@ -1128,12 +1157,16 @@ bool HTTPRemoteClient::MaybeSendBytesFromBuffer()
         //               would "cork" the socket to prevent sending out partial frames.
         int flags{MSG_NOSIGNAL | MSG_DONTWAIT};
 
-        // Try to send bytes through socket
+        // Try to send bytes through socket. Test-only: g_send_cap limits how much
+        // we attempt to send in a single call, forcing large replies to drain over
+        // multiple I/O loop iterations.
+        size_t send_size{m_send_buffer.size()};
+        if (g_send_cap > 0) send_size = std::min(send_size, g_send_cap);
         ssize_t bytes_sent;
         {
             LOCK(m_sock_mutex);
             bytes_sent = m_sock->Send(m_send_buffer.data(),
-                                      m_send_buffer.size(),
+                                      send_size,
                                       flags);
         }
 
@@ -1209,6 +1242,9 @@ bool InitHTTPServer()
     g_http_server = std::make_unique<HTTPServer>(MaybeDispatchRequestToWorker);
 
     g_http_server->SetServerTimeout(std::chrono::seconds(gArgs.GetIntArg("-rpcservertimeout", DEFAULT_HTTP_SERVER_TIMEOUT)));
+
+    g_writereply_delay = std::chrono::milliseconds(gArgs.GetIntArg("-rpcwritereplydelay", 0));
+    g_send_cap = static_cast<size_t>(std::max<int64_t>(gArgs.GetIntArg("-rpcsendcap", 0), 0));
 
     // Bind HTTP server to specified addresses
     std::vector<std::pair<std::string, uint16_t>> endpoints{GetBindAddresses()};

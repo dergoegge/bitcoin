@@ -4,10 +4,12 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the HTTP server basics."""
 
+from test_framework.descriptors import descsum_create
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, str_to_b64str
 
 import http.client
+import json
 import time
 import urllib.parse
 
@@ -136,6 +138,7 @@ class HTTPBasicsTest (BitcoinTestFramework):
         self.check_null_byte_in_uri()
         self.check_invalid_http_version()
         self.check_whitespace_in_headers()
+        self.check_optimistic_send_race()
 
 
     def check_default_connection(self):
@@ -567,6 +570,90 @@ class HTTPBasicsTest (BitcoinTestFramework):
         conn.headers = {"Authorization": f"Basic \n {str_to_b64str(conn.authpair)}"}
         response = conn.post('/', '{"method": "getbestblockhash"}')
         assert_equal(response.status, http.client.BAD_REQUEST)
+
+    def check_optimistic_send_race(self):
+        """
+        Regression test for a data race in HTTPRequest::WriteReply()'s optimistic-send path.
+
+        When a worker thread writes a reply for a keep-alive connection while a
+        previous reply is still draining, it must not (re)set m_send_ready=true
+        based on a stale "send buffer was not empty" reading: the I/O thread may
+        have drained the buffer to empty in the meantime. If it does, the I/O loop
+        keeps polling the socket for writeability (never for readability), so the
+        client's next request is never read and the connection wedges until it is
+        disconnected by the idle timeout.
+
+        We deterministically expose the race with -rpcwritereplydelay, which delays
+        each reply between filling the send buffer and updating m_send_ready, giving
+        the I/O thread time to drain the buffer to empty in that window. We also set
+        -rpcservertimeout=0 so the idle timeout doesn't paper over the wedge by
+        dropping the stuck connection.
+        """
+        self.log.info("Check optimistic-send race does not wedge the connection")
+        WRITE_DELAY_MS = 2000
+        # -rpcsendcap forces the (large) first reply to drain over multiple I/O
+        # loop iterations rather than in one Send(), so the second reply's worker
+        # reliably observes a non-empty send buffer and takes the racy branch.
+        # -rpcwritereplydelay then holds that worker in the racy branch long enough
+        # for the I/O thread to drain the buffer to empty before m_send_ready is set.
+        # -rpcservertimeout=0 disables the idle timeout that would otherwise paper
+        # over the wedge by dropping the stuck connection.
+        SEND_CAP = 32768
+        self.restart_node(0, extra_args=[
+            f"-rpcwritereplydelay={WRITE_DELAY_MS}",
+            f"-rpcsendcap={SEND_CAP}",
+            "-rpcservertimeout=0",
+        ])
+
+        # A ranged descriptor handed to deriveaddresses produces a reply (~380 kB)
+        # that is much larger than the send cap but still drains well within the
+        # injected delay.
+        desc = descsum_create("pkh(tpubD6NzVbkrYhZ4XgiXtGrdW5XDAPFCL9h7we1vwNCpn8tGbBcgfVYjXyhWo4E1xkh56hjod1RhGjxbaTLV3X4FyWuejifB9jusQ46QzG87VKp/0/*)")
+
+        conn = BitcoinHTTPConnection(self.node)
+        conn.set_timeout(30)
+
+        # Pipeline a large reply followed by a small one on the same connection.
+        conn.post_raw('/', json.dumps({"method": "deriveaddresses", "params": [desc, [0, 10000]]}))
+        conn.post_raw('/', json.dumps({"method": "getblockcount"}))
+
+        # Drain both responses. Reading lets the I/O thread flush the (capped)
+        # send buffer to empty while the second reply's worker is still inside the
+        # injected delay -- exactly the window in which it then wrongly marks the
+        # now-empty buffer as "ready to send".
+        res = b""
+        while res.count(b'"result"') != 2:
+            chunk = conn.recv_raw()
+            assert chunk != b"", "server closed connection before sending both pipelined responses"
+            res += chunk
+
+        # Wait until the second reply's worker has exited the injected delay and
+        # set the (buggy) m_send_ready=true on the empty buffer. Only after this is
+        # established does a freshly-arriving request expose the wedge: a request
+        # that arrives earlier would be read/queued before m_send_ready is stuck
+        # and would paper over the bug.
+        time.sleep(WRITE_DELAY_MS / 1000 + 1)
+
+        # The connection must still be usable. With the bug, m_send_ready is stuck
+        # true on an empty buffer, so the I/O loop only ever polls the socket for
+        # writeability and never reads this third request -> we time out.
+        conn.set_timeout(20)
+        conn.post_raw('/', json.dumps({"method": "getblockcount"}))
+        res3 = b""
+        try:
+            while res3.count(b'"result"') != 1:
+                chunk = conn.recv_raw()
+                assert chunk != b"", "server closed connection instead of answering follow-up request"
+                res3 += chunk
+        except TimeoutError:
+            raise AssertionError(
+                "HTTP connection wedged: server stopped reading requests after an "
+                "optimistic send (m_send_ready data race)")
+
+        conn.close_sock()
+
+        # Restore defaults for any subsequent checks.
+        self.restart_node(0)
 
 
 if __name__ == '__main__':
