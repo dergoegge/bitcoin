@@ -663,8 +663,11 @@ class P2PInterface(P2PConnection):
         def test_function():
             last_data = self.last_message.get("getdata")
             if not last_data:
+                logger.info("wait_for_getdata: No getdata message received yet")
                 return False
-            return [x.hash for x in last_data.inv] == hash_list
+            res = [x.hash for x in last_data.inv] == hash_list
+            logger.info("wait_for_getdata: getdata message received, hashes match: {} (last_data: {}, hash_list: {})".format(res, [x.hash for x in last_data.inv], hash_list))
+            return res
 
         self.wait_until(test_function, timeout=timeout)
 

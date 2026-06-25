@@ -442,6 +442,7 @@ def wait_until_helper_internal(predicate, *, timeout=60, lock=None, timeout_fact
         else:
             if predicate():
                 return
+        logger.info("wait_until() sleeping for {} seconds".format(check_interval))
         time.sleep(check_interval)
 
     # Print the cause of the timeout
