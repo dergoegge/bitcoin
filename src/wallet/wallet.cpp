@@ -53,6 +53,7 @@
 #include <uint256.h>
 #include <univalue.h>
 #include <util/check.h>
+#include <util/expected.h>
 #include <util/fs.h>
 #include <util/fs_helpers.h>
 #include <util/log.h>
@@ -3843,16 +3844,29 @@ util::Result<std::reference_wrapper<DescriptorScriptPubKeyMan>> CWallet::AddWall
     return std::reference_wrapper(*spk_man);
 }
 
-util::Result<CExtPubKey> CWallet::AddHDKey(const std::optional<CExtKey>& existing_key)
+util::Expected<CExtPubKey, WalletError> CWallet::AddHDKey(const std::optional<CExtKey>& existing_key)
 {
     LOCK(cs_wallet);
 
     if (existing_key && !existing_key->key.IsValid()) {
-        return util::Error{_("Invalid HD key")};
+        return util::Unexpected{WalletError{
+            WalletErrorCode::WALLET_ERROR,
+            _("Invalid HD key"),
+        }};
     }
 
     if (IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS)) {
-        return util::Error{_("addhdkey is not available for wallets without private keys")};
+        return util::Unexpected{WalletError{
+            WalletErrorCode::WALLET_ERROR,
+            _("addhdkey is not available for wallets without private keys")
+        }};
+    }
+
+    if (IsLocked()) {
+        return util::Unexpected{WalletError{
+            WalletErrorCode::WALLET_UNLOCK_NEEDED,
+            _("Wallet needs to be unlocked to perform this operation.")
+        }};
     }
 
     CExtKey hdkey;
@@ -3865,18 +3879,29 @@ util::Result<CExtPubKey> CWallet::AddHDKey(const std::optional<CExtKey>& existin
 
     std::string desc_str = "unused(" + EncodeExtKey(hdkey) + ")";
     FlatSigningProvider keys;
-    std::string error;
-    std::vector<std::unique_ptr<Descriptor>> descs = Parse(desc_str, keys, error, /*require_checksum=*/false);
-    CHECK_NONFATAL(!descs.empty());
+    std::string parse_error;
+    std::vector<std::unique_ptr<Descriptor>> descs = Parse(desc_str, keys, parse_error, /*require_checksum=*/false);
+    if (descs.empty()) {
+        return util::Unexpected{WalletError{
+           WalletErrorCode::WALLET_ERROR,
+           parse_error.empty() ? Untranslated("Failed to parse HD key descriptor") : Untranslated(parse_error),
+        }};
+    }
     WalletDescriptor w_desc(std::move(descs.at(0)), GetTime(), /*range_start=*/0, /*range_end=*/0, /*next_index=*/0);
 
     if (GetDescriptorScriptPubKeyMan(w_desc) != nullptr) {
-        return util::Error{_("HD key already exists")};
+        return util::Unexpected{WalletError{
+            WalletErrorCode::WALLET_ERROR,
+            _("HD key already exists")
+        }};
     }
 
     auto spkm = AddWalletDescriptor(w_desc, keys, /*label=*/"", /*internal=*/false);
-    if (!spkm) {
-        return util::Error{util::ErrorString(spkm)};
+    if(!spkm) {
+        return util::Unexpected{WalletError{
+            WalletErrorCode::WALLET_ERROR,
+            util::ErrorString(spkm),
+        }};
     }
 
     const DescriptorScriptPubKeyMan& desc_spkm = spkm->get();
@@ -3884,8 +3909,12 @@ util::Result<CExtPubKey> CWallet::AddHDKey(const std::optional<CExtKey>& existin
     std::set<CPubKey> pubkeys;
     std::set<CExtPubKey> extpubs;
     desc_spkm.GetWalletDescriptor().descriptor->GetPubKeys(pubkeys, extpubs);
-    CHECK_NONFATAL(pubkeys.empty());
-    CHECK_NONFATAL(extpubs.size() == 1);
+    if (!pubkeys.empty() || extpubs.size() != 1) {
+        return util::Unexpected{WalletError{
+           WalletErrorCode::WALLET_ERROR,
+           Untranslated("Unexpected HD key contents"),
+        }};
+    }
 
     return *extpubs.begin();
 }
