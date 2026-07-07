@@ -94,7 +94,11 @@ bool CheckDiskSpace(const fs::path& dir, uint64_t additional_bytes)
 {
     constexpr uint64_t min_disk_space{50_MiB};
 
-    uint64_t free_bytes_available = fs::space(dir).available;
+    std::error_code ec;
+    const uint64_t free_bytes_available{fs::space(dir, ec).available};
+    if (ec) {
+        return false;
+    }
     return free_bytes_available >= min_disk_space + additional_bytes;
 }
 

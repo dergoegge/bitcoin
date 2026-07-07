@@ -48,18 +48,20 @@ class BlockstoreIOErrorTest(BitcoinTestFramework):
 
         with (
             simulate_io_error(node.blocks_path),
-            node.assert_debug_log(["EXCEPTION: "]),
+            node.assert_debug_log(["Shutting down due to lack of disk space"]),
         ):
             self.log.info("Mock scheduler to run disk space check")
             try:
                 node.mockscheduler(5 * 60)
             except Exception:
-                pass
+                pass  # Node may shut down
 
             node.wait_until_stopped(
                 expect_error=True,
-                expected_ret_code=(-6),
-                expected_stderr=re.compile(".*EXCEPTION: .*"),
+                expected_stderr=re.compile(
+                    "Error: A fatal internal error occurred, see debug.log for details: "
+                    r"Disk space is too low.*"
+                ),
             )
 
     def test_blockfilterindex_allocation_failure(self):
@@ -82,17 +84,19 @@ class BlockstoreIOErrorTest(BitcoinTestFramework):
 
         with (
             simulate_io_error(index_path),
-            node.assert_debug_log(["EXCEPTION: "]),
+            node.assert_debug_log(["out of disk space"]),
         ):
             try:
                 self.generate(node, 1)
             except Exception:
-                pass
+                pass  # Node may shut down
 
             node.wait_until_stopped(
                 expect_error=True,
-                expected_ret_code=(-6),
-                expected_stderr=re.compile(".*EXCEPTION: .*"),
+                expected_stderr=re.compile(
+                    "Error: A fatal internal error occurred, see debug.log for details: "
+                    "Failed to write block .* to index database"
+                ),
             )
 
     def test_block_file_out_of_space_error(self):
@@ -106,7 +110,7 @@ class BlockstoreIOErrorTest(BitcoinTestFramework):
 
         with (
             simulate_io_error(node.blocks_path),
-            node.assert_debug_log(["System error while saving block"]),
+            node.assert_debug_log(["Failed to find position to write"]),
         ):
             assert_raises_rpc_error(
                 -32603,
@@ -120,7 +124,7 @@ class BlockstoreIOErrorTest(BitcoinTestFramework):
                 expect_error=True,
                 expected_stderr=re.compile(
                     r"Error: A fatal internal error occurred, see debug.log for details: "
-                    r"System error while saving block to disk: .*"
+                    r"Disk space is too low.*"
                 ),
             )
 
