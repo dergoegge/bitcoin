@@ -51,6 +51,7 @@
 #include <netaddress.h>
 #include <netbase.h>
 #include <netgroup.h>
+#include <node/block_template_manager.h>
 #include <node/blockmanager_args.h>
 #include <node/blockstorage.h>
 #include <node/caches.h>
@@ -429,6 +430,7 @@ void Shutdown(NodeContext& node)
     if (node.validation_signals) {
         node.validation_signals->UnregisterAllValidationInterfaces();
     }
+    node.block_template_manager.reset();
     node.mempool.reset();
     node.fee_estimator.reset();
     node.chainman.reset();
@@ -1325,6 +1327,7 @@ static ChainstateLoadResult InitAndLoadChainstate(
 {
     // This function may be called twice, so any dirty state must be reset.
     node.notifications->setChainstateLoaded(false); // Drop state, such as a cached tip block
+    node.block_template_manager.reset();
     node.mempool.reset();
     node.chainman.reset(); // Drop state, such as an initialized m_block_tree_db
 
@@ -1341,9 +1344,6 @@ static ChainstateLoadResult InitAndLoadChainstate(
     if (!mempool_error.empty()) {
         return {ChainstateLoadStatus::FAILURE_FATAL, mempool_error};
     }
-    auto mining_args{node::ReadMiningArgs(args)};
-    Assert(mining_args); // no error can happen, already checked in AppInitParameterInteraction
-    node.mining_args = std::move(*mining_args);
     LogInfo("* Using %.1f MiB for in-memory UTXO set (plus up to %.1f MiB of unused mempool space)",
             cache_sizes.coins / double(1_MiB),
             mempool_opts.max_size_bytes / double(1_MiB));
@@ -1433,6 +1433,9 @@ static ChainstateLoadResult InitAndLoadChainstate(
         std::tie(status, error) = catch_exceptions([&] { return VerifyLoadedChainstate(chainman, options); });
         if (status == node::ChainstateLoadStatus::SUCCESS) {
             LogInfo("Block index and chainstate loaded");
+            auto mining_args{node::ReadMiningArgs(args)};
+            Assert(mining_args); // no error can happen, already checked in AppInitParameterInteraction
+            node.block_template_manager = std::make_unique<node::BlockTemplateManager>(*node.mempool, chainman, *node.notifications, std::move(*mining_args));
             node.notifications->setChainstateLoaded(true);
         }
     }

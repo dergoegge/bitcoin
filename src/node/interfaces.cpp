@@ -33,6 +33,7 @@
 #include <net_types.h>
 #include <netaddress.h>
 #include <netbase.h>
+#include <node/block_template_manager.h>
 #include <node/blockstorage.h>
 #include <node/coin.h>
 #include <node/context.h>
@@ -40,7 +41,6 @@
 #include <node/kernel_notifications.h>
 #include <node/miner.h>
 #include <node/mini_miner.h>
-#include <node/mining_args.h>
 #include <node/mining_types.h>
 #include <node/transaction.h>
 #include <node/types.h>
@@ -95,7 +95,6 @@ using interfaces::Node;
 using interfaces::Rpc;
 using interfaces::WalletLoader;
 using kernel::ChainstateRole;
-using node::BlockAssembler;
 using node::BlockCreateOptions;
 using node::BlockWaitOptions;
 using node::CoinbaseTx;
@@ -923,25 +922,20 @@ public:
         AddMerkleRootAndCoinbase(m_block_template->block, std::move(coinbase), version, timestamp, nonce);
         std::string reason;
         std::string debug;
-        return SubmitBlock(chainman(), std::make_shared<const CBlock>(m_block_template->block), /*new_block=*/nullptr, reason, debug);
+        return block_template_manager().SubmitBlock(std::make_shared<const CBlock>(m_block_template->block), /*new_block=*/nullptr, reason, debug);
     }
 
     std::unique_ptr<BlockTemplate> waitNext(BlockWaitOptions options) override
     {
-        auto new_template = WaitAndCreateNewBlock(chainman(),
-                                                  notifications(),
-                                                  m_node.mempool.get(),
-                                                  m_block_template,
-                                                  /*wait_options=*/options,
-                                                  /*create_options=*/m_create_options,
-                                                  /*interrupt_wait=*/m_interrupt_wait);
+        auto new_template = block_template_manager().WaitAndCreateNewBlock(
+            m_block_template, options, m_create_options, m_interrupt_wait);
         if (new_template) return std::make_unique<BlockTemplateImpl>(m_create_options, std::move(new_template), m_node);
         return nullptr;
     }
 
     void interruptWait() override
     {
-        InterruptWait(notifications(), m_interrupt_wait);
+        block_template_manager().InterruptWait(m_interrupt_wait);
     }
 
     const BlockCreateOptions m_create_options;
@@ -949,8 +943,7 @@ public:
     const std::unique_ptr<CBlockTemplate> m_block_template;
 
     bool m_interrupt_wait{false};
-    ChainstateManager& chainman() { return *Assert(m_node.chainman); }
-    KernelNotifications& notifications() { return *Assert(m_node.notifications); }
+    node::BlockTemplateManager& block_template_manager() { return *Assert(m_node.block_template_manager); }
     const NodeContext& m_node;
 };
 
@@ -971,12 +964,12 @@ public:
 
     std::optional<BlockRef> getTip() override
     {
-        return GetTip(chainman());
+        return block_template_manager().GetTip();
     }
 
     std::optional<BlockRef> waitTipChanged(uint256 current_tip, MillisecondsDouble timeout) override
     {
-        return WaitTipChanged(chainman(), notifications(), current_tip, timeout, m_interrupt_mining);
+        return block_template_manager().WaitTipChanged(current_tip, timeout, m_interrupt_mining);
     }
 
     std::unique_ptr<BlockTemplate> createNewBlock(const BlockCreateOptions& options, bool cooldown) override
@@ -998,21 +991,16 @@ public:
             }
 
             // Also wait during the final catch-up moments after IBD.
-            if (!CooldownIfHeadersAhead(chainman(), notifications(), *maybe_tip, m_interrupt_mining)) return {};
+            if (!block_template_manager().CooldownIfHeadersAhead(*maybe_tip, m_interrupt_mining)) return {};
         }
-        const BlockCreateOptions create_options{MergeMiningOptions(options, m_node.mining_args)};
-        return std::make_unique<BlockTemplateImpl>(create_options,
-                                                   BlockAssembler{
-                                                       chainman().ActiveChainstate(),
-                                                       m_node.mempool.get(),
-                                                       create_options,
-                                                   }.CreateNewBlock(),
-                                                   m_node);
+        auto& block_template_manager = *Assert(m_node.block_template_manager);
+        auto new_template = block_template_manager.CreateNewTemplate(options);
+        return std::make_unique<BlockTemplateImpl>(options, std::move(new_template), m_node);
     }
 
     void interrupt() override
     {
-        InterruptWait(notifications(), m_interrupt_mining);
+        block_template_manager().InterruptWait(m_interrupt_mining);
     }
 
     bool checkBlock(const CBlock& block, const node::BlockCheckOptions& options, std::string& reason, std::string& debug) override
@@ -1028,7 +1016,7 @@ public:
     {
         auto block = std::make_shared<const CBlock>(block_in);
         bool new_block;
-        const bool accepted = SubmitBlock(chainman(), block, &new_block, reason, debug);
+        const bool accepted = block_template_manager().SubmitBlock(block, &new_block, reason, debug);
         // ProcessNewBlock() can accept and store a block before it is checked
         // for validity. Treat duplicates as errors for mining clients, and only
         // return success when validation completed without setting a reason.
@@ -1064,6 +1052,7 @@ public:
     const NodeContext* context() override { return &m_node; }
     ChainstateManager& chainman() { return *Assert(m_node.chainman); }
     KernelNotifications& notifications() { return *Assert(m_node.notifications); }
+    node::BlockTemplateManager& block_template_manager() { return *Assert(m_node.block_template_manager); }
     // Treat as if guarded by notifications().m_tip_block_mutex
     bool m_interrupt_mining{false};
     const NodeContext& m_node;
