@@ -98,6 +98,7 @@ class BIP68_112_113Test(BitcoinTestFramework):
         self.noban_tx_relay = True
         self.extra_args = [[
             f'-testactivationheight=csv@{CSV_ACTIVATION_HEIGHT}',
+            '-par=1',  # Use only one script thread to get the exact reject reason for testing
         ]]
 
     def create_self_transfer_from_utxo(self, input_tx):

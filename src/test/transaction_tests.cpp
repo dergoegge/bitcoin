@@ -554,7 +554,7 @@ BOOST_AUTO_TEST_CASE(test_big_witness_transaction)
         control.Add(std::move(vChecks));
     }
 
-    bool controlCheck = !control.Complete().has_value();
+    bool controlCheck = control.Wait();
     assert(controlCheck);
 }
 

@@ -573,7 +573,8 @@ void MinerTestingSetup::TestBasicMining(const CScript& scriptPubKey, const std::
         tx.vout[0].nValue -= LOWFEE;
         hash = tx.GetHash();
         TryAddToMempool(tx_mempool, entry.Fee(LOWFEE).Time(Now<NodeSeconds>()).SpendsCoinbase(false).FromTx(tx));
-        BOOST_CHECK_EXCEPTION(mining->createNewBlock(options, /*cooldown=*/false), std::runtime_error, HasReason("block-script-verify-flag-failed"));
+        // Should throw block-validation-failed
+        BOOST_CHECK_EXCEPTION(mining->createNewBlock(options, /*cooldown=*/false), std::runtime_error, HasReason("block-validation-failed"));
 
         // Delete the dummy blocks again.
         while (m_node.chainman->ActiveChain().Tip()->nHeight > nHeight) {

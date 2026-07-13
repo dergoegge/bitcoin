@@ -12,24 +12,19 @@
 
 #include <algorithm>
 #include <iterator>
-#include <optional>
 #include <vector>
 
 /**
  * Queue for verifications that have to be performed.
   * The verifications are represented by a type T, which must provide an
-  * operator(), returning an std::optional<R>.
-  *
-  * The overall result of the computation is std::nullopt if all invocations
-  * return std::nullopt, or one of the other results otherwise.
+  * operator(), returning a bool.
   *
   * One thread (the master) is assumed to push batches of verifications
   * onto the queue, where they are processed by N-1 worker threads. When
   * the master is done adding work, it temporarily joins the worker pool
   * as an N'th worker, until all jobs are done.
-  *
   */
-template <typename T, typename R = std::remove_cvref_t<decltype(std::declval<T>()().value())>>
+template <typename T>
 class CCheckQueue
 {
 private:
@@ -53,7 +48,7 @@ private:
     int nTotal GUARDED_BY(m_mutex){0};
 
     //! The temporary evaluation result.
-    std::optional<R> m_result GUARDED_BY(m_mutex);
+    bool fAllOk GUARDED_BY(m_mutex){true};
 
     /**
      * Number of verifications that haven't completed yet.
@@ -69,28 +64,24 @@ private:
     bool m_request_stop GUARDED_BY(m_mutex){false};
 
     /// \anchor checkqueue
-    /** Internal function that does bulk of the verification work. If fMaster, return the final result. */
-    std::optional<R> Loop(bool fMaster) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
+    /** Internal function that does bulk of the verification work. */
+    bool Loop(bool fMaster) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
     {
         std::condition_variable& cond = fMaster ? m_master_cv : m_worker_cv;
         std::vector<T> vChecks;
         vChecks.reserve(nBatchSize);
         unsigned int nNow = 0;
-        std::optional<R> local_result;
-        bool do_work;
+        bool fOk = true;
         do {
             {
                 WAIT_LOCK(m_mutex, lock);
                 // first do the clean-up of the previous loop run (allowing us to do it in the same critsect)
                 if (nNow) {
-                    if (local_result.has_value() && !m_result.has_value()) {
-                        std::swap(local_result, m_result);
-                    }
+                    fAllOk &= fOk;
                     nTodo -= nNow;
-                    if (nTodo == 0 && !fMaster) {
+                    if (nTodo == 0 && !fMaster)
                         // We processed the last element; inform the master it can exit and return the result
                         m_master_cv.notify_one();
-                    }
                 } else {
                     // first iteration
                     nTotal++;
@@ -99,19 +90,18 @@ private:
                 while (queue.empty() && !m_request_stop) {
                     if (fMaster && nTodo == 0) {
                         nTotal--;
-                        std::optional<R> to_return = std::move(m_result);
+                        bool fRet = fAllOk;
                         // reset the status for new work later
-                        m_result = std::nullopt;
+                        fAllOk = true;
                         // return the current status
-                        return to_return;
+                        return fRet;
                     }
                     nIdle++;
                     cond.wait(lock); // wait
                     nIdle--;
                 }
                 if (m_request_stop) {
-                    // return value does not matter, because m_request_stop is only set in the destructor.
-                    return std::nullopt;
+                    return false;
                 }
 
                 // Decide how many work units to process now.
@@ -124,15 +114,12 @@ private:
                 vChecks.assign(std::make_move_iterator(start_it), std::make_move_iterator(queue.end()));
                 queue.erase(start_it, queue.end());
                 // Check whether we need to do work at all
-                do_work = !m_result.has_value();
+                fOk = fAllOk;
             }
             // execute work
-            if (do_work) {
-                for (T& check : vChecks) {
-                    local_result = check();
-                    if (local_result.has_value()) break;
-                }
-            }
+            for (T& check : vChecks)
+                if (fOk)
+                    fOk = check();
             vChecks.clear();
         } while (true);
     }
@@ -162,9 +149,8 @@ public:
     CCheckQueue(CCheckQueue&&) = delete;
     CCheckQueue& operator=(CCheckQueue&&) = delete;
 
-    //! Join the execution until completion. If at least one evaluation wasn't successful, return
-    //! its error.
-    std::optional<R> Complete() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
+    //! Wait until execution finishes, and return whether all evaluations were successful.
+    bool Wait() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
     {
         return Loop(true /* master thread */);
     }
@@ -205,11 +191,11 @@ public:
  * RAII-style controller object for a CCheckQueue that guarantees the passed
  * queue is finished before continuing.
  */
-template <typename T, typename R = std::remove_cvref_t<decltype(std::declval<T>()().value())>>
+template <typename T>
 class SCOPED_LOCKABLE CCheckQueueControl
 {
 private:
-    CCheckQueue<T, R>& m_queue;
+    CCheckQueue<T>& m_queue;
     UniqueLock<Mutex> m_lock;
     bool fDone;
 
@@ -219,11 +205,11 @@ public:
     CCheckQueueControl& operator=(const CCheckQueueControl&) = delete;
     explicit CCheckQueueControl(CCheckQueue<T>& queueIn) EXCLUSIVE_LOCK_FUNCTION(queueIn.m_control_mutex) : m_queue(queueIn), m_lock(LOCK_ARGS(queueIn.m_control_mutex)), fDone(false) {}
 
-    std::optional<R> Complete()
+    bool Wait()
     {
-        auto ret = m_queue.Complete();
+        bool fRet = m_queue.Wait();
         fDone = true;
-        return ret;
+        return fRet;
     }
 
     void Add(std::vector<T>&& vChecks)
@@ -234,7 +220,7 @@ public:
     ~CCheckQueueControl() UNLOCK_FUNCTION()
     {
         if (!fDone)
-            Complete();
+            Wait();
     }
 };
 

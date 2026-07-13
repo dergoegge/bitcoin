@@ -95,6 +95,8 @@ class FullBlockTest(BitcoinTestFramework):
             # Override the functional-test default of 1 thread to exercise the multi-threaded
             # prevout prefetching path in this block-heavy test.
             '-prevoutfetchthreads=8',
+            '-par=1', # Until https://github.com/bitcoin/bitcoin/issues/30960 is fixed
+
         ]]
 
     def add_options(self, parser):
