@@ -63,8 +63,8 @@ ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& c
         return READ_STATUS_INVALID;
     if (cmpctblock.shorttxids.size() + cmpctblock.prefilledtxn.size() > MAX_BLOCK_WEIGHT / MIN_SERIALIZABLE_TRANSACTION_WEIGHT)
         return READ_STATUS_INVALID;
-
-    if (!header.IsNull() || !txn_available.empty()) return READ_STATUS_INVALID;
+    
+    assert(header.IsNull() && txn_available.empty());
 
     header = cmpctblock.header;
     txn_available.resize(cmpctblock.BlockTxCount());
@@ -180,7 +180,7 @@ ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& c
 
 bool PartiallyDownloadedBlock::IsTxAvailable(size_t index) const
 {
-    if (header.IsNull()) return false;
+    assert(!header.IsNull());
 
     assert(index < txn_available.size());
     return txn_available[index] != nullptr;
@@ -188,7 +188,7 @@ bool PartiallyDownloadedBlock::IsTxAvailable(size_t index) const
 
 ReadStatus PartiallyDownloadedBlock::FillBlock(CBlock& block, const std::vector<CTransactionRef>& vtx_missing, bool segwit_active)
 {
-    if (header.IsNull()) return READ_STATUS_INVALID;
+    assert(!header.IsNull());
 
     block = header;
     block.vtx.resize(txn_available.size());
